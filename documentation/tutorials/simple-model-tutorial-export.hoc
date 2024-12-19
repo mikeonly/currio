@@ -1,0 +1,92 @@
+proc celldef() {
+  topol()
+  subsets()
+  geom()
+  biophys()
+  geom_nseg()
+}
+
+create soma, ap[3], bas, axon
+
+proc topol() { local i
+  connect ap(0), soma(1)
+  for i = 1, 2 connect ap[i](0), ap(1)
+  connect bas(0), soma(0)
+  connect axon(0), soma(0)
+  basic_shape()
+}
+proc basic_shape() {
+  soma {pt3dclear() pt3dadd(0, 0, 0, 1) pt3dadd(15, 0, 0, 1)}
+  ap {pt3dclear() pt3dadd(15, 0, 0, 1) pt3dadd(150, 0, 0, 1)}
+  bas {pt3dclear() pt3dadd(0, 0, 0, 1) pt3dadd(-74, 45, 0, 1)}
+  axon {pt3dclear() pt3dadd(0, 0, 0, 1) pt3dadd(-74, -59, 0, 1)}
+  ap[1] {pt3dclear() pt3dadd(150, 0, 0, 1) pt3dadd(180, 30, 0, 1)}
+  ap[2] {pt3dclear() pt3dadd(150, 0, 0, 1) pt3dadd(165, -29, 0, 1)}
+}
+
+objref all, apicals
+proc subsets() { local i
+  objref all, apicals
+  all = new SectionList()
+    soma all.append()
+    for i=0, 2 ap[i] all.append()
+    bas all.append()
+    axon all.append()
+
+  apicals = new SectionList()
+    for i=0, 2 ap[i] apicals.append()
+
+}
+proc geom() {
+  forsec all {  }
+   soma.L = 20
+   ap.L = 400
+   bas.L = 300
+   axon.L = 500
+   ap[1].L = 200
+   ap[2].L = 800
+   soma.diam = 20
+   ap.diam = 2
+   bas.diam = 3
+   axon.diam = 1
+   ap[1].diam = 1
+   ap[2].diam = 1
+}
+proc geom_nseg() {
+  forsec all { nseg = int((L/(0.1*lambda_f(100))+.999)/2)*2 + 1  }
+}
+proc biophys() {
+  forsec all {
+    Ra = 160
+    cm = 1
+  }
+  forsec apicals {
+    insert hh
+      gnabar_hh = 0.012
+      gkbar_hh = 0.0036
+      gl_hh = 0.0003
+      el_hh = -64
+  }
+  soma {
+    insert hh
+      gnabar_hh = 0.12
+      gkbar_hh = 0.036
+      gl_hh = 0.0003
+      el_hh = -54.3
+  }
+  bas {
+    insert pas
+      g_pas = 0.001
+      e_pas = -65
+  }
+  axon {
+    insert hh
+      gnabar_hh = 0.12
+      gkbar_hh = 0.036
+      gl_hh = 0.0003
+      el_hh = -54.3
+  }
+}
+access soma
+
+celldef()

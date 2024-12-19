@@ -1,0 +1,18 @@
+This is a synthetic cell, primarily built to generate spikes 
+different from those of L5P cells (in particular narrower spikes). 
+The cell is incorporated as local interneuron in the network
+(the red and yellow neurons in the figures of the paper).
+
+I took the L5P cell, deleted all but the basal dendritic tree, 
+rotated the cell, and used as channels those from the cerebellar
+granule cell (and Golgi cell) model.
+
+So most of this dir is self-contained (copied from ../L5P37C),
+except for the channels, which have been borrowed from
+../granule_cell.
+
+For more documentation, please see he paper and the README file
+of ../L5P37C.
+
+To simulate this neuron, please type (from within this dir)
+genesis L5P37C_onlybasal.g

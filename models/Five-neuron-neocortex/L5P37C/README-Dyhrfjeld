@@ -1,0 +1,45 @@
+This collection of scripts are used to simulate IV curves from a layer
+5 pyramidal cell from rat somatosensory (barrel) cortex as shown in
+Fig.11 of
+
+
+Dyhrfjeld-Johnsen J,Maier J,Schubert D,Staiger J,Luhmann HJ,Stephan
+KE, Kotter R.: CoCoDat: a database system for organizing and selecting
+quantitative data on single neurons and neuronal microcircuitry. J
+Neurosci Methods. 2005 Feb 15;141(2):291-308.
+
+
+The scripts involved are:
+
+* L5P_mainloop.g - The main simulation script that executes the setup
+of the model and runs through the series of current injections.
+
+*L5P_const.g - Constants and values used in the simulation.
+
+*DS1_141099_rot2_sc_defmesh.p - The reconstructed neuron morphology.
+
+*L5P_chans.g - Tabchannel definitions of ion-channels used in the
+simulation
+
+*L5P_comps.g - Protope compartments used for setting up the model.
+
+*DiffRm.g & Hgradient.g - Functions to set up differentially
+distrubuted values for Rm and H-current density.
+
+*L5P_input.g & ExpInjCur.g - Scripts to set up (and provide amplitudes
+for) current injection stimulation.
+
+*L5P_graph.g - Creates direct graphical output of membrane potential
+for entire morphology, somatic Vm, somatic conductances and somatic
+currents. Graphic output can be turned off by commenting out line 40
+in the main simulation script.
+
+L5P_ascout.g - Script to write out somatic voltage traces to ASCII
+format. ASCII output can be turned off by commenting out line 41 in
+the main simulation script.
+
+*DS991014IVPotential.asc - The experimentally recorded IV curves for
+the modeled cell.
+
+*plotVmIBloop.m - MATLAB script to plot the simulated and
+experimentally recorded IV curves in the same graph for comparison.

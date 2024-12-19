@@ -1,0 +1,538 @@
+load_file("nrngui.hoc")
+use_mcell_ran4(1)
+cvode_active(1)
+
+numaxon=1
+numsoma=1
+numbasal=52
+numapical=70
+numtrunk=49
+numuser5=numtrunk
+numdendr=numbasal
+numapdendr=numapical
+
+low=50
+high=400
+high2=300
+nsyn=50
+tstop=300
+Ih_rid=0
+
+xopen("geo5038804.hoc")       
+xopen("fixnseg.hoc")  
+  
+Rm = 28000
+RmDend = Rm
+RmSoma = Rm
+RmAx = Rm
+Cm    = 1
+CmSoma= Cm
+CmAx  = Cm
+CmDend = Cm
+RaAll= 150
+RaSoma=150  
+RaAx = 50
+Vrest = -65
+dt = 0.1
+gna_ax=.025
+gna = .025
+AXONM = 5
+gkdr = 0.01
+celsius = 35.0 
+KMULTPax = 0.03
+ghd=0.00005
+
+objref vec,  diversi, apc,  perc
+objref ra, rb, rc, syn[nsyn], nc[nsyn], s[nsyn] 
+objref rd, syn2[nsyn],nc2[nsyn], s2[nsyn], weight_vec2, ritardo_vec, r
+objref dann,  weight_vec,  riagg_vec
+
+weight_vec=new Vector(11)
+weight_vec.x[0]=0.875e-3
+for i=0,9{
+weight_vec.x[i+1]=weight_vec.x[i]+0.0625e-3}
+
+weight_vec2=new Vector(11) 
+for j=0,10{
+weight_vec2.x[j]=weight_vec.x[j]/3} 
+
+dann=new Vector()
+dann.append(0,10,20,30,40,50,60,70,80,90,100,110,120,130,140,150)
+riagg_vec=new Vector()
+riagg_vec.append(10/10, 5/10, 6/10, 7/10)
+ritardo_vec=new Vector()
+ritardo_vec.append(5)
+
+KA_rid_sper=60
+kdr_rid_sper=40
+Na_rid_sper=50
+pes_rid_sper=50
+
+forsec "axon" {insert pas e_pas=Vrest g_pas = 1/RmAx Ra=RaAx cm=CmAx}
+forsec "soma" {insert pas e_pas=Vrest g_pas = 1/RmSoma Ra=RaSoma cm=CmSoma}
+forsec "dendrite" {insert pas e_pas=Vrest g_pas = 1/RmDend Ra=RaAll cm=CmDend}
+forsec "user5" {insert pas e_pas=Vrest g_pas = 1/RmDend Ra=RaAll cm=CmDend}
+
+soma{
+apc=new APCount(.5)
+apc.thresh=-10
+geom_nseg()
+tot=0
+forall {tot=tot+nseg}
+distance()
+}
+
+forsec "axon" {   
+                insert nax gbar_nax=gna_ax * AXONM
+                insert kdr gkdrbar_kdr=gkdr
+                insert kap gkabar_kap = KMULTPax
+}
+
+forsec "soma" {   
+		insert hd ghdbar_hd=ghd	vhalfl_hd=-73
+                insert na3 gbar_na3=gna
+                insert kdr gkdrbar_kdr=gkdr
+                insert kap 
+}
+
+for i=0, numbasal-1 dendrite[i] {
+        
+		insert hd ghdbar_hd=ghd vhalfl_hd=-73
+                insert na3 gbar_na3=gna
+                insert kdr gkdrbar_kdr=gkdr
+		insert kap 
+		insert kad 
+		for (x) if (x>0 && x<1) { xdist = distance(x)
+                	ghdbar_hd(x) = ghd*(1+3*xdist/100)
+                		if (xdist > 100){
+					vhalfl_hd=-81
+                        		
+                			} else {
+					vhalfl_hd=-73
+                    
+               				}
+		}
+}
+                
+forsec "apical_dendrite" {
+	insert ds
+		insert hd ghdbar_hd=ghd
+                insert na3 gbar_na3=gna
+                insert kdr gkdrbar_kdr=gkdr
+		insert kap 
+		insert kad 
+		for (x) if (x>0 && x<1) { xdist = distance(x)
+                	ghdbar_hd(x) = ghd*(1+3*xdist/100)
+                		if (xdist > 100){
+					vhalfl_hd=-81
+                        		
+                			} else {
+					vhalfl_hd=-73
+                        		
+               				}
+		}
+}
+
+forsec "user5" {
+	insert ds
+		insert hd ghdbar_hd=ghd
+                insert na3 gbar_na3=gna
+                insert kdr gkdrbar_kdr=gkdr
+		insert kap 
+		insert kad 
+		for (x) if (x>0 && x<1) { xdist = distance(x)
+                	ghdbar_hd(x) = ghd*(1+3*xdist/100)
+                		if (xdist > 100){
+					vhalfl_hd=-81
+                        		
+                			} else {
+					vhalfl_hd=-73
+                        		
+               				}
+		}
+}
+
+proc membrane_area() {
+vec = new Vector(172)
+perc = new Vector() 
+
+{access soma[0] 
+tot=0
+for(x,0) tot=tot+area(x) 
+vec.x[0]=tot 
+totsoma=tot}
+
+totuser5=0 
+for i=0, numuser5-1 {access user5[i]
+tot=0
+for(x,0) tot=tot+area(x)
+vec.x[i+numsoma]=tot
+totuser5=totuser5+tot}
+
+totdend=0
+for i=0, numdendr-1 {access dendrite[i]
+tot=0
+for(x,0) tot=tot+area(x)
+vec.x[i+numsoma+numuser5]=tot
+totdend=totdend+tot}
+
+tot_apdend=0
+for i=0, numapdendr-1 {access apical_dendrite[i]
+tot=0
+for(x,0) tot=tot+area(x)
+vec.x[i+numsoma+numuser5+numdendr]=tot
+tot_apdend=tot_apdend+tot}
+
+totarea=totsoma+totuser5+totdend+tot_apdend
+zp=0    
+dp=totarea*10/100
+vp=totarea*20/100 
+tp=totarea*30/100
+qp=totarea*40/100
+cp=totarea*50/100
+sp=totarea*60/100
+stp=totarea*70/100
+op=totarea*80/100
+np=totarea*90/100
+cpc=55559.840 
+perc.append(zp, dp, vp, tp, qp, cp, sp, stp, op, np, cpc)
+
+}
+
+proc alzheimer(){
+	 KMULT =  0.03
+     KMULTP = 0.03
+	 KA_mir = riagg_vec.x[riagg]
+
+forsec "soma" {   
+	 ghdbar_hd=ghd	vhalfl_hd=-73
+     gbar_na3=gna
+     gkdrbar_kdr=gkdr
+     gkabar_kap = KMULTP
+}
+
+for i=0, numbasal-1 dendrite[i] {
+         ghdbar_hd=ghd vhalfl_hd=-73
+         gbar_na3=gna
+         gkdrbar_kdr=gkdr
+		 gkabar_kap=0
+		 gkabar_kad=0
+
+		for (x) if (x>0 && x<1) { xdist = distance(x)
+                	ghdbar_hd(x) = ghd*(1+3*xdist/100)
+                		if (xdist > 100){
+					vhalfl_hd=-81
+                        		gkabar_kad(x) = KMULT*(1+xdist/100)
+                			} else {
+					vhalfl_hd=-73
+                        		gkabar_kap(x) = KMULTP*(1+xdist/100)
+               				}
+		}
+}
+forsec "apical_dendrite" {
+	ghdbar_hd=ghd
+    gbar_na3=gna
+    gkdrbar_kdr=gkdr
+	gkabar_kap=0
+	gkabar_kad=0
+
+		for (x) if (x>0 && x<1) { xdist = distance(x)
+                	ghdbar_hd(x) = ghd*(1+3*xdist/100)
+                		if (xdist > 100){
+					vhalfl_hd=-81
+                        		gkabar_kad(x) = KMULT*(1+xdist/100)
+                			} else {
+					vhalfl_hd=-73
+                        		gkabar_kap(x) = KMULTP*(1+xdist/100)
+               				}
+		}
+}
+forsec "user5" {
+	ghdbar_hd=ghd
+    gbar_na3=gna
+    gkdrbar_kdr=gkdr
+	gkabar_kap=0
+	gkabar_kad=0
+
+		for (x) if (x>0 && x<1) { xdist = distance(x)
+                	ghdbar_hd(x) = ghd*(1+3*xdist/100)
+                		if (xdist > 100){
+					vhalfl_hd=-81
+                        		gkabar_kad(x) = KMULT*(1+xdist/100)
+                			} else {
+					vhalfl_hd=-73
+                        		gkabar_kap(x) = KMULTP*(1+xdist/100)
+               				}
+		}
+}
+
+    diversi= new Vector()  
+    areasottr=0
+	
+while (areasottr<percento) {
+   compsottrpr=int(r.repick())              
+   if (diversi.contains(compsottrpr)==0){        
+     compsottr=compsottrpr
+     diversi.append(compsottr)
+	 
+	 Na_rid=Na_rid_sper*dann.x[rid]/100
+	 kdr_rid=kdr_rid_sper*dann.x[rid]/100
+	 KA_rid=KA_rid_sper*dann.x[rid]/100
+	 
+         if (compsottr<numsoma) {
+          soma[0] {
+		  	 ghdbar_hd=ghd
+			 gbar_na3=gna*(1-Na_rid/100)
+             gkdrbar_kdr=gkdr*(1-kdr_rid/100)
+             gkabar_kap = KMULTP*(1-KA_rid/100)*KA_mir
+		
+			 }
+		  }
+		 if (compsottr>=numsoma && compsottr<numsoma+numuser5){  
+          user5[compsottr-numsoma] {
+		  	 ghdbar_hd=ghd
+             gbar_na3=gna*(1-Na_rid/100)
+             gkdrbar_kdr=gkdr*(1-kdr_rid/100)
+
+          for (x) if (x>0 && x<1) { xdist = distance(x)
+                	ghdbar_hd(x) = ghd*(1+3*xdist/100)
+                		if (xdist > 100){
+                          gkabar_kad(x) = KMULT*(1+xdist/100)*(1-KA_rid/100)*KA_mir
+                			} else {
+                        	gkabar_kap(x) = KMULTP*(1+xdist/100)*(1-KA_rid/100)*KA_mir
+               				}
+		                          } 
+                                  }
+		                                                       }
+		 if (compsottr>=numsoma+numuser5 && compsottr<numsoma+numuser5+numdendr){
+          dendrite[compsottr-numsoma-numuser5]{
+		  	 ghdbar_hd=ghd
+			 gbar_na3=gna*(1-Na_rid/100)
+             gkdrbar_kdr=gkdr*(1-kdr_rid/100)
+
+          for (x) if (x>0 && x<1) { xdist = distance(x)
+                	ghdbar_hd(x) = ghd*(1+3*xdist/100)
+                		if (xdist > 100){
+                          gkabar_kad(x) = KMULT*(1+xdist/100)*(1-KA_rid/100)*KA_mir
+                			} else {
+                        	gkabar_kap(x) = KMULTP*(1+xdist/100)*(1-KA_rid/100)*KA_mir
+               				}
+		                          } 
+                                  }
+		}
+		 if (compsottr>=numsoma+numuser5+numdendr && compsottr<numsoma+numuser5+numdendr+numapdendr){
+          apical_dendrite[compsottr-numsoma-numuser5-numdendr]{
+		  	 ghdbar_hd=ghd
+			 gbar_na3=gna*(1-Na_rid/100)
+             gkdrbar_kdr=gkdr*(1-kdr_rid/100)
+
+           for (x) if (x>0 && x<1) { xdist = distance(x)
+                	ghdbar_hd(x) = ghd*(1+3*xdist/100)
+                		if (xdist > 100){
+                          gkabar_kad(x) = KMULT*(1+xdist/100)*(1-KA_rid/100)*KA_mir
+                			} else {
+                        	gkabar_kap(x) = KMULTP*(1+xdist/100)*(1-KA_rid/100)*KA_mir
+               				}
+		                          } 
+                                  }
+		}
+		     areasottr=areasottr+vec.x[compsottr] 
+	}
+} 
+}
+
+proc sinapsirandom(){
+  ritardo=ritardo_vec.x[rit]
+  rc.MCellRan4($1)
+  rc.normal(50, 5)
+  rd.MCellRan4($2)
+  rd.normal(50, 5)  
+  objref nc[nsyn],nc2[nsyn]
+  objref s[nsyn], syn[nsyn]	,s2[nsyn], syn2[nsyn]	
+  access soma  
+ for i=0, nsyn-1{
+ s[i]=new NetStim(.5)
+ s[i].number=1
+ syn[i]=new Exp2Syn(.5)
+ syn[i].e=0
+ syn[i].tau1=.5
+ syn[i].tau2=3
+ s[i].start=rc.repick()+ritardo
+ nc[i]=new NetCon(s[i], syn[i], 0, 0, weight_vec.x[pes])
+ }
+ 
+ for i=0, nsyn-1{
+ s2[i]=new NetStim(.5)
+ s2[i].number=1
+ syn2[i]=new Exp2Syn(.5)
+ syn2[i].e=0
+ syn2[i].tau1=.5
+ syn2[i].tau2=10
+ s2[i].start=rd.repick()
+ nc2[i]=new NetCon(s2[i], syn2[i], 0, 0, weight_vec2.x[pes])
+ }
+ 
+ for i=0, nsyn-1{
+   j=0
+   while(j==0){
+   location=int(ra.repick())   
+   tmp=rb.repick()  
+   pes_rid=pes_rid_sper*dann.x[rid]/100
+    if(location>=numsoma && location<numsoma+numuser5){j=0}
+    if(location>=numsoma+numuser5 && location<numsoma+numuser5+numdendr){j=0}
+     if(location>=numsoma+numuser5+numdendr && location<numsoma+numuser5+numdendr+numapdendr){
+      apical_dendrite[location-numsoma-numuser5-numdendr]{
+         j=1
+		 syn[i].loc(tmp)
+	     if  (diversi.contains(location)==1){nc[i].weight=weight_vec.x[pes]*(1-pes_rid/100)} 
+                                                         }
+														 }
+    }
+}
+ 
+ for i=0, nsyn-1{
+   j=0
+   while(j==0){
+   location=int(ra.repick())    
+   tmp=rb.repick()  
+   pes_rid=pes_rid_sper*dann.x[rid]/100
+
+if(location>=numsoma && location<numsoma+numuser5){
+    user5[location-numsoma]{
+     if ( distance(tmp)<=high2) {j=0}else{
+                                    j=1
+                                    syn2[i].loc(tmp)
+	                                if  (diversi.contains(location)==1){nc2[i].weight=weight_vec2.x[pes]*(1-pes_rid/100)
+									} 
+								}
+                    }
+}
+if(location>=numsoma+numuser5 && location<numsoma+numuser5+numdendr){j=0}
+if(location>=numsoma+numuser5+numdendr && location<numsoma+numuser5+numdendr+numapdendr){j=0}
+    }
+    }
+	 }
+ 
+proc init() {
+      t=0
+        forall {
+        v=Vrest
+        if (ismembrane("nax") || ismembrane("na3")) {ena=55}
+        if (ismembrane("kdr") || ismembrane("kap") || ismembrane("kad")) {ek=-90}
+        if (ismembrane("hd") ) {ehd_hd=-30}
+	}
+	finitialize(Vrest)
+        fcurrent()
+
+        forall {
+	for (x) {
+	if (ismembrane("na3")||ismembrane("nax")){e_pas(x)=v(x)+(ina(x)+ik(x))/g_pas(x)}
+	if (ismembrane("hd")) {e_pas(x)=e_pas(x)+i_hd(x)/g_pas(x)}
+		}
+	} 
+
+   	cvode.re_init()
+    cvode.event(tstop)
+	access soma
+	}
+
+proc superrun() {
+	
+	r= new Random()
+    r.uniform(0, 172)
+    ra=new Random()
+    ra.uniform(0,172)
+    rb=new Random()
+    rb.uniform(0,1)
+    rc=new Random()	
+	rd=new Random()
+	
+	r.MCellRan4(seed)
+    ra.MCellRan4(seeda)
+	rb.MCellRan4(seedb)
+	
+	membrane_area()
+	percento=perc.x[amp]
+	alzheimer()
+	sinapsirandom(seedc,seedd)
+	run()	
+}
+
+load_file("10sim.ses")
+PlotShape[0].exec_menu("Shape Plot")
+PlotShape[0].exec_menu("Show Diam")
+
+rit=0
+rid=10
+pes=5
+	  
+proc control() {
+Graph[0].erase()
+loop=0
+nspike=0
+	  seeda=70
+      seedb=70+5           
+      seedc=70+10
+	  seedd=90
+      amp=0
+      riagg=0
+	  print "CONTROL"
+for(loop==0; loop<=9; loop=loop+1) {
+		   seed=seed+100
+		   seeda=seeda+100
+		   seedb=seedb+100
+		   seedc=seedc+100
+		   seedd=seedd+100
+superrun()
+if (apc.n==0) {print "sim ", loop+1, ": no spike"} else {print "sim ", loop+1, ": spike"}
+nspike=nspike+apc.n}
+print " number of spikes = ", nspike
+}
+
+proc AD(){
+Graph[0].erase()
+loop=0
+nspike=0
+	  seeda=70
+      seedb=70+5           
+      seedc=70+10
+	  seedd=90
+      amp=9
+      riagg=0
+	  print "AD"
+for(loop==0; loop<=9; loop=loop+1) {
+		   seed=seed+100
+		   seeda=seeda+100
+		   seedb=seedb+100
+		   seedc=seedc+100
+		   seedd=seedd+100
+superrun()
+if (apc.n==0) {print "sim ", loop+1, ": no spike"} else {print "sim ", loop+1, ": spike"}
+nspike=nspike+apc.n}
+print " number of spikes = ", nspike
+}
+
+proc AD_KA(){
+Graph[0].erase()
+loop=0
+nspike=0
+	  seeda=70
+      seedb=70+5           
+      seedc=70+10
+	  seedd=90
+      amp=9
+      riagg=2
+	  print "KA-TREATMENT"
+for(loop==0; loop<=9; loop=loop+1) {
+		   seed=seed+100
+		   seeda=seeda+100
+		   seedb=seedb+100
+		   seedc=seedc+100
+		   seedd=seedd+100
+superrun()
+if (apc.n==0) {print "sim ", loop+1, ": no spike"} else {print "sim ", loop+1, ": spike"}
+nspike=nspike+apc.n}
+print " number of spikes = ", nspike
+}
+
+

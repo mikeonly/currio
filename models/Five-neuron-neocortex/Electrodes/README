@@ -1,0 +1,9 @@
+The dir contains all code related to configuring and
+positioning the electodes, and calculating the LFPs.
+
+LFPs were calculated as explained in the paper.
+
+The code is a bit convoluted because of a bug in the
+Genesis efield object. To circumvent this bug, a diffamp
+object was created for each compartment, and its output
+was sent to the electodes.

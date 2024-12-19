@@ -1,0 +1,14 @@
+This is the code for running a 5-neuron network.
+The network can be run by typing genesis Network.g.
+To simulate the network without electrodes but with 
+graphics, please type genesis Network_withoutElectrodes.g.
+To simulate the network without graphics but with
+electrodes, please type genesis Network_withoutGraphics.g.
+
+It should be easy to run the network with fewer neurons
+(uncomment respective lines) or more neurons (copy respective
+lines and assign new neuron name and coordinates, also provide
+new connections to electrodes, new input from fibres, etc).
+
+Take into account that a 5-neuron network already runs extremely 
+slowly, mainly due to the calculation and saving of the LFPs. 

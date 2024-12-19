@@ -1,0 +1,37 @@
+This code is based on the model published by Dyhrfjeld and available 
+at http://senselab.med.yale.edu/ModelDB/ShowModel.asp?model=93349.
+The original text of its README file is now in README-Dyhrfjeld.
+
+The code of this dir is self-contained.
+The tabulated channels are in the channels subdirectory, and should be
+machine-independent. If not, the tables should be recreated. This can
+be done by starting genesis, and then using
+> include defaults
+> include L5P_const.g
+> include L5P_chans_Temp.g
+That should do it.
+
+The Dyhrfjeld model has been extended and modified in several ways,
+and some of these changes are reflected in the file names used.
+
+- The temperature is now 37 degrees (instead of 32).
+- A 20-compartmental axon has been added.
+- Synaptic channels have been added (although NMDA-type and
+GABAB-type channels were not used for the paper).
+- Afferent fibres have been created and connected to the synaptic channels.
+To account for potential differences in the density of inputs along the
+axis of the neuron and depth of the cortex (layers), a depth profile can
+be defined for their strengts (see Firing_rate_profile.g).
+All fibres are Poisson processes and their instantaneous spike rate can
+be changed over time as follows:
+- the spike rate of subcortical fibres is modulated by an additional
+point process with an exponential impulse response, as described by
+Harsch and Robinson (Harsch-Robinson_modulation.g);
+- the spike rate of intracolumnar feedback fibres is modulated by the
+filtered output of the neuron itself.
+
+A few control scripts (test_position.g, nsynapses.g) allow you to
+record some parameters of the model.
+ 
+To simulate this neuron, please type (from within this dir)
+genesis L5P37C.g

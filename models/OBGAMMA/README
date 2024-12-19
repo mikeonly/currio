@@ -1,0 +1,62 @@
+ 
+//===============================================================================================================   
+	NEURON CODE FOR IMPLEMENTING 2D OLFACTORY BULB (OB) MODEL OF GAMMA OSCILLATIONS
+
+				Guoshi Li
+                                Department of Psychiatry
+				Univeristy of North Carolina at Chapel Hill
+                                Chapel Hill, NC 27599
+
+A full description of the model may be found in:
+Li G and Cleland TA (2017) A coupled-oscillator model of olfacotry bulb gamma oscillations. 
+PLOS Computational Biology (In press).
+
+
+For questions, please email: guoshi_li@med.unc.edu
+											
+//==================================================================================================================
+
+Then OB model is implemented with NEURON 7.3 and simulation is run under both CentOS Linux and Ubuntu Linux. 
+	
+The default OB network model contains 25 mitral cells (MCs), 25 periglomerular cells (PGs) and 100 granule cell (GCs)
+ 
+The package contains five folders:
+"celldata" folder to store data from single cell simulations
+"data0" folder to store data from network simulations 
+"connection" folder to store the connectivity information between MCs and GCs
+"Input" folder stores odor input values
+"Readme" folder has model information
+
+For network simulation, run mosinit.hoc
+For MC single-cell simulation, run MC_Stim.hoc
+For GC single-cell simulation, run GC_Stim.hoc
+For PG single-cell simulation, run PG_Stim.hoc
+
+Other major hoc files are described as follows:
+
+Parameter.hoc: Specify the parameters of the OB model
+Connect.hoc: Specify network connectivity 
+Background.hoc: Generate random background inputs to the network
+Input.hoc: Generate odor inputs to the network
+Figure.hoc: Generate graphic display of the network simulation results (Optional)
+SaveData.hoc: Save all relevant data into files for later analysis
+
+
+The simulation step is set to 0.002 ms and the default simulation time is 3000 ms (3 sec) 
+
+
+The data saved in the "data0" folder after simulation can be analyzed using the following custom Matalb scripts.
+The simulation time needs to be 3000 ms (3 sec) for the m-files to run properly!
+
+PlotV.m: plot cell membrane voltages
+Pro_Delay.m: plot spike propogation delay of one representative MC
+PlotG.m: plot GABAa conductances
+Rasterplot.m: generate raster plots of spikes
+LFP.m:   frequency analysis of the simulated local field potential (sLFP)
+Load_data.m: Load all relevant data into the workspace (in order to save the data into a mat file for future analysis)
+ 
+
+Changelog
+---------
+2022-05: Updated MOD files to compile with the latest neuron releases where
+         ion variables used as STATE can not be declared as GLOBAL.

@@ -1,0 +1,36 @@
+{load_file("nrngui.hoc")}
+objectvar save_window_, rvp_
+objectvar scene_vector_[4]
+objectvar ocbox_, ocbox_list_, scene_, scene_list_
+{ocbox_list_ = new List()  scene_list_ = new List()}
+{pwman_place(0,0,0)}
+{
+save_window_ = new Graph(0)
+save_window_.size(0,150,-67,26)
+scene_vector_[2] = save_window_
+{save_window_.view(0, -67, 150, 93, 384, 30, 300.6, 200.8)}
+graphList[0].append(save_window_)
+save_window_.save_name("graphList[0].")
+save_window_.addexpr("v(.5)", 1, 1, 0.8, 0.9, 2)
+save_window_.exec_menu("Keep Lines")
+}
+{
+save_window_ = new PlotShape(0)
+save_window_.size(-337.267,369.006,-175.998,530.627)
+save_window_.variable("v")
+scene_vector_[3] = save_window_
+{save_window_.view(-337.267, -175.998, 706.273, 706.625, 402, 409, 200.7, 200.8)}
+fast_flush_list.append(save_window_)
+save_window_.save_name("fast_flush_list.")
+}
+{
+xpanel("", 0)
+xbutton("control ","control()")
+xbutton("alzheimer","AD()")
+xbutton("KA-treatment","AD_KA()")
+xpanel(732,528)
+}
+objectvar scene_vector_[1]
+{doNotify()}
+
+tstop = 150

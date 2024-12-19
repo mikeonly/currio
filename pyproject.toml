@@ -1,0 +1,14 @@
+[project]
+name = "currio"
+version = "0.0.3"
+
+authors = [
+  { name="Mykhailo Flaks", email="mykhailo.flaks@gmail.com"},
+]
+
+description = "Currio is a Python package for creating and simulating neuron models using NEURON simulator."
+readme = "README.md"
+
+[build-system]
+requires = ["setuptools>=58.2.0", "wheel"]
+build-backend = "setuptools.build_meta"

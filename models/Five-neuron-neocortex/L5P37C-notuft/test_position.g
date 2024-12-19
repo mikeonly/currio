@@ -1,0 +1,1 @@
+showfield /L5P/p0b1b2b1b1b1b2b1b2b1b2b1b2b1b1b1b2b1b2b1b2b1b2b1b2b1b2b1b2b1b2b1b1b2b2[10]  -a

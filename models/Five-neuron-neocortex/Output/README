@@ -1,0 +1,22 @@
+This dir deals with graphical or file output.
+
+L5P_history.g can be used to save spike times (of neurons
+or fibres) to a file.
+
+L5P_ascout.g is commonly used to write time series (of
+membrane potential, electrode LFP, etc) to a file.
+
+L5P_view.g will open a window picturing all the neurons' 
+compartments, colour-coded by membrane potential and 
+updated every 50 ms.
+
+Likewise, L5P_graphsolve.g will open a window with online
+graphs of the time-evolution of the membrane potential of
+selected compartments. Note that L5P_graphsolve.g replaces
+L5P_graph.g because of an unsolved problem with Genesis or
+my code. The original code of L5P_graph.g intended to establish 
+the messages from compartments to graphs before setting up 
+the hinessolver. Unfortunately this resulted in a bus error. 
+So L5P_graphsolve.g now makes these messages directly from 
+the hinesolver element to the graphs, after creation of the 
+hinessolver element.  

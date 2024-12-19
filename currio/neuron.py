@@ -25,8 +25,8 @@ class Neuron(object):
         
         self.load_model(model_name)
         
-        self.data_3d = None
-        """3D model of the neuron.
+        self.data_3d: dict = None
+        """3D model of the neuron. Updated by `.load_3d_model()` method.
         
         A list of dictionaries, each containing the 3D coordinates of the neuron model per section.
         The keys of the dictionary are:
@@ -37,21 +37,81 @@ class Neuron(object):
             - `d`: the diameters of segments
         """
         
+        self.records: list = []
+        self.record: dict = None
+        """Record dictionary of the simulation. Updated by `.create_record()` method.
+        
+        A list of dictionaries, each containing the voltage traces of the neuron model per section and
+        a reference to the section object in NEURON. The keys of the dictionary are:
+        
+            - `proc_name`: the name of the procedure used to run the simulation.
+            - `t`: the time vector 
+            
+            For each section in h.allsec():
+            - `sec_name`: a dictionary with keys:
+                - `v`: a list of voltage traces `_ref_v` for each segment in the section, i.e.
+                    `v[i]` is the voltage trace for the `i`-th segment in the section of length `len(t)`.
+                - `var_i`: a list of tracked variable passed to the `record` function as `.record(track=['var_1', 'var_2', ...])`
+                    with the same structure as `v`.
+                - `sec`: a reference to the section object in NEURON.
+        """
+        
     def load_model(self, model_name):
         os.chdir(self.model_path)
         self.h.load_file(self.hocfile)
         
-    def extract_vt(self):
-        vt_dict = {}
-        vt_dict["t"] = self.h.Vector().record(self.h._ref_t)
+    def simulate(self, proc_name, force=False):
+        """Run a simulation procedure defined in the model .hoc file."""
+        
+        # Access and run the procedure
+        if not hasattr(self.h, proc_name):
+            raise ValueError(f"Procedure '{proc_name}' not found in the model.")
+        
+        for r in self.records:
+            if r["proc_name"] == proc_name and not force:
+                raise ValueError("Simulation already run. Use `force=True` to run again.")
+            
+        self.create_record(proc_name=proc_name)
+        getattr(self.h, proc_name)()
+        self.convert_record()
+        
+    def create_record(self, proc_name):
+        """Creates a record of the simulation. Record is a dictionary with keys 
+        as section names and values as dictionaries containing the voltage traces and 
+        references to section objects in NEURON.
+        """
+        record = {}
+        """Record dictionary of the simulation."""
+        record["proc_name"] = proc_name
+        record["t"] = self.h.Vector().record(self.h._ref_t)
         for sec in self.h.allsec():
-            vt_dict[sec.name()] = {"v": []}
+            record[sec.name()] = {"v": []}
             for seg in sec.allseg():
                 v = self.h.Vector().record(seg._ref_v)
-                vt_dict[sec.name()]["v"].append(v)
-                vt_dict[sec.name()]["sec"] = sec
-        self.h.superrun()
-        return vt_dict
+                record[sec.name()]["v"].append(v)
+                record[sec.name()]["sec"] = sec
+        
+        # Rewrite the last recording 
+        self.record = record
+        # Add recording to the records list
+        self.records.append(record)
+        
+    def convert_record(self):
+        """Converts the record dictionary from HocObjects to np.arrays."""
+        record = self.record
+        for key, sec_dict in record.items():
+            if key == "t":
+                record["t"] = sec_dict.as_numpy()
+                continue
+            elif key == "proc_name":
+                continue
+            
+            sec = sec_dict["sec"]
+            voltages = np.array([v.as_numpy() for v in sec_dict["v"]])
+            record[key] = {"v": voltages, "sec": sec}
+        
+        self.record = record
+        self.records[-1] = record
 
     def load_3d_model(self):
         data = []

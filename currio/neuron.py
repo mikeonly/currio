@@ -28,9 +28,15 @@ class Neuron(object):
         self.data_3d: dict = None
         """3D model of the neuron. Updated by `.load_3d_model()` method.
         
+        A dictionary with keys being names of sections. Values are dictionaries
+        each containing the 3D coordinates of the neuron model per section. The
+        keys of the dictionary are:
         A list of dictionaries, each containing the 3D coordinates of the neuron model per section.
         The keys of the dictionary are:
             - `id`: the name of the section
+        A dictionary with keys being names of sections. Values are dictionaries
+        each containing the 3D coordinates of the neuron model per section. The
+        keys of the dictionary are:
             - `x`: the x-coordinates of segments
             - `y`: the y-coordinates of segments
             - `z`: the z-coordinates of segments
@@ -51,16 +57,34 @@ class Neuron(object):
             - `sec_name`: a dictionary with keys:
                 - `v`: a list of voltage traces `_ref_v` for each segment in the section, i.e.
                     `v[i]` is the voltage trace for the `i`-th segment in the section of length `len(t)`.
+                - `var_i`: a list of tracked variable passed to the `simulate` function as an argument
+                    `record` as `.simulate(record=['var_1', 'var_2', ...])` with the same structure as `v`.
                 - `var_i`: a list of tracked variable passed to the `record` function as `.record(track=['var_1', 'var_2', ...])`
                     with the same structure as `v`.
+                - `var_i`: a list of tracked variable passed to the `simulate` function as an argument
+                    `record` as `.simulate(record=['var_1', 'var_2', ...])` with the same structure as `v`.
                 - `sec`: a reference to the section object in NEURON.
         """
+        
+        self.mesh: pv.MultiBlock = None
+        """PyVista mesh of the neuron model. Updated by `.create_3d_mesh()` method. 
+        Used to plot the 3D model of the neuron, to compute arc lengths along sections and 
+        to store values for visualization."""
+        
+        self.mesh: pv.MultiBlock = None
+        """PyVista mesh of the neuron model. Updated by `.create_3d_mesh()` method. 
+        Used to plot the 3D model of the neuron, to compute arc lengths along sections and 
+        to store values for visualization."""
         
     def load_model(self, model_name):
         os.chdir(self.model_path)
         self.h.load_file(self.hocfile)
+        return self
+        return self
         
+    def simulate(self, proc_name, force=False, record=None):
     def simulate(self, proc_name, force=False):
+    def simulate(self, proc_name, force=False, record=None):
         """Run a simulation procedure defined in the model .hoc file."""
         
         # Access and run the procedure
@@ -71,11 +95,17 @@ class Neuron(object):
             if r["proc_name"] == proc_name and not force:
                 raise ValueError("Simulation already run. Use `force=True` to run again.")
             
+        self.create_record(proc_name=proc_name, record=record)
         self.create_record(proc_name=proc_name)
+        self.create_record(proc_name=proc_name, record=record)
         getattr(self.h, proc_name)()
         self.convert_record()
+        return self
+        return self
         
+    def create_record(self, proc_name, record=None):
     def create_record(self, proc_name):
+    def create_record(self, proc_name, record=None):
         """Creates a record of the simulation. Record is a dictionary with keys 
         as section names and values as dictionaries containing the voltage traces and 
         references to section objects in NEURON.
@@ -95,6 +125,8 @@ class Neuron(object):
         self.record = record
         # Add recording to the records list
         self.records.append(record)
+        return self
+        return self
         
     def convert_record(self):
         """Converts the record dictionary from HocObjects to np.arrays."""
@@ -114,23 +146,22 @@ class Neuron(object):
         self.records[-1] = record
 
     def load_3d_model(self):
-        data = []
+        data = {}
         for sec in self.h.allsec():
             xs = [sec.x3d(i) for i in range(sec.n3d())]
             ys = [sec.y3d(i) for i in range(sec.n3d())]
             zs = [sec.z3d(i) for i in range(sec.n3d())]
             ds = [sec.diam3d(i) for i in range(sec.n3d())]
-            data.append({
-                "id": sec.hname(),
+            data[sec.hname()] = {
                 "x": xs,
                 "y": ys,
                 "z": zs,
                 "d": ds  # diameters
-            })
+            }
         self.data_3d = data
-        return data
+        return self
     
-    def get_3d_mesh(self, sec=None):
+    def get_3d_mesh(self, sec=None) -> pv.MultiBlock:
         """Outputs a pyvista mesh of the neuron. If `sec` is given, only that section(s) is (are) returned.
         Sections can be either a string or a list of strings, or it can be a list of section objects from h 
         NEURON environment."""
@@ -138,7 +169,7 @@ class Neuron(object):
             self.load_3d_model()
             
         if sec is None:
-            meshes = {sec["id"]: self.get_section_mesh(sec["id"]) for sec in self.data_3d}
+            meshes = {sec: self.get_section_mesh(sec) for sec in self.data_3d.keys()}
         
         elif isinstance(sec, str):
             meshes = {sec: self.get_section_mesh(sec)}
@@ -154,19 +185,21 @@ class Neuron(object):
             else:
                 raise ValueError("Invalid type for `sec`. It is a list, but the elements are not strings or NEURON sections.")
             
-        return pv.MultiBlock(meshes)
+        meshes = pv.MultiBlock(meshes)
+        return meshes
+
+    def create_3d_mesh(self):
+        if self.mesh is None:
+            self.mesh = self.get_3d_mesh()
+        return self
     
     def get_section_mesh(self, sec_name):
         if self.data_3d is None:
             self.load_3d_model()
         
-        sec_data = [sec for sec in self.data_3d if sec["id"] == sec_name]
-        if len(sec_data) == 0:
+        sec_data = self.data_3d.get(sec_name, None)
+        if sec_data is None:
             raise ValueError(f"Section '{sec_name}' not found in the 3D model.")
-        elif len(sec_data) > 1:
-            raise ValueError(f"Multiple sections with the name '{sec_name}' found in the 3D model.")
-        else:
-            sec_data = sec_data[0]
         
         points = sec_data["x"], sec_data["y"], sec_data["z"]
         points = np.array(points).T  # shape: (n_points, 3)
@@ -181,30 +214,5 @@ class Neuron(object):
             
         spline["diameter"] = diameters
         spline = spline.interpolate(spline, sharpness=10.0)
-        
-        return spline.tube(radius=0.5, scalars="diameter", capping=True, absolute=True)
-
-    # def convert_to_pyvista_mesh(self, neuron_data):
-    #     points = []
-    #     lines = []
-    #     diameters = []
-        
-    #     for sec_data in neuron_data:
-    #         n_points = len(sec_data["x"])
-    #         for i in range(n_points):
-    #             points.append([sec_data["x"][i], sec_data["y"][i], sec_data["z"][i]])
-    #             diameters.append(sec_data["d"][i])
-    #             # Add connectivity between lines
-    #             if i < n_points - 1:
-    #                 lines.append([2, len(points) - 1, len(points)])
-        
-    #     points = np.array(points)
-    #     lines = np.array(lines)
-    #     diameters = np.array(diameters)
-        
-    #     polydata = pv.PolyData()
-    #     polydata.points = points
-    #     polydata.lines = lines
-    #     polydata["diameter"] = diameters
-        
-    #     return polydata.tube(radius=0.5, scalars="diameter", capping=True, absolute=True)
+        mesh = spline.tube(radius=0.5, scalars="diameter", capping=True, absolute=True)
+        return mesh

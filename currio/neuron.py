@@ -8,8 +8,12 @@ from currio import __modelpath__
 
 class Neuron(object):
     def __init__(self, model_name=None, hocfile='mosinit.hoc'):
+        from neuron import h, nrn
         from neuron import h
+        from neuron import h, nrn
         self.h = h
+        self.nrn = nrn
+        self.nrn = nrn
         self.hocfile = hocfile
         
         # Look for the model in the modelpath
@@ -139,8 +143,16 @@ class Neuron(object):
                 continue
             
             sec = sec_dict["sec"]
-            voltages = np.array([v.as_numpy() for v in sec_dict["v"]])
-            record[key] = {"v": voltages, "sec": sec}
+            for key, v in sec_dict.items():
+                if key == "sec":
+                    continue
+                else:
+                    # Each x is a HocObject of recorded values with length len(t), convert to np.array
+                    sec_dict[key] = np.array([x.as_numpy() for x in sec_dict[key]])
+                    continue
+                else:
+                    # Each x is a HocObject of recorded values with length len(t), convert to np.array
+                    sec_dict[key] = np.array([x.as_numpy() for x in sec_dict[key]])
         
         self.record = record
         self.records[-1] = record
@@ -148,10 +160,10 @@ class Neuron(object):
     def load_3d_model(self):
         data = {}
         for sec in self.h.allsec():
-            xs = [sec.x3d(i) for i in range(sec.n3d())]
-            ys = [sec.y3d(i) for i in range(sec.n3d())]
-            zs = [sec.z3d(i) for i in range(sec.n3d())]
-            ds = [sec.diam3d(i) for i in range(sec.n3d())]
+            xs = np.array([sec.x3d(i) for i in range(sec.n3d())])
+            ys = np.array([sec.y3d(i) for i in range(sec.n3d())])
+            zs = np.array([sec.z3d(i) for i in range(sec.n3d())])
+            ds = np.array([sec.diam3d(i) for i in range(sec.n3d())])
             data[sec.hname()] = {
                 "x": xs,
                 "y": ys,
@@ -175,15 +187,11 @@ class Neuron(object):
             meshes = {sec: self.get_section_mesh(sec)}
         
         elif isinstance(sec, self.nrn.Section):
-        elif isinstance(sec, self.h.Section):
-        elif isinstance(sec, self.nrn.Section):
             meshes = {sec.hname(): self.get_section_mesh(sec.hname())}
         
         elif isinstance(sec, list):
             if all([isinstance(s, str) for s in sec]):
                 meshes = {s: self.get_section_mesh(s) for s in sec}
-            elif all([isinstance(s, self.nrn.Section) for s in sec]):
-            elif all([isinstance(s, self.h.Section) for s in sec]):
             elif all([isinstance(s, self.nrn.Section) for s in sec]):
                 meshes = {sec.hname(): self.get_section_mesh(s.hname()) for s in sec}
             else:

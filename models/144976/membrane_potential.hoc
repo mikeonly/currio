@@ -281,7 +281,6 @@ while (areasottr<percento) {
    if (diversi.contains(compsottrpr)==0){        
      compsottr=compsottrpr
      diversi.append(compsottr)
-	 printf("Affecting comparment: %g\n", compsottr)
 	 
 	 Na_rid=Na_rid_sper*dann.x[rid]/100
 	 kdr_rid=kdr_rid_sper*dann.x[rid]/100
@@ -384,7 +383,6 @@ proc sinapsirandom(){
    j=0
    while(j==0){
    location=int(ra.repick())   
-   fprint("Location for synapse is %g\n", location)
    tmp=rb.repick()  
    pes_rid=pes_rid_sper*dann.x[rid]/100
     if(location>=numsoma && location<numsoma+numuser5){j=0}

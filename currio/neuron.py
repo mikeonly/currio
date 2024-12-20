@@ -6,6 +6,7 @@ import os
 from scipy.interpolate import interp1d
 
 from currio import __modelpath__
+from currio.compiled import get_b_njit
 from currio.utils import interp_along_axis
 
 
@@ -35,9 +36,7 @@ class Neuron(object):
         A dictionary with keys being names of sections. Values are dictionaries
         each containing the 3D coordinates of the neuron model per section. The
         keys of the dictionary are:
-            - `x`: the x-coordinates of segments
-            - `y`: the y-coordinates of segments
-            - `z`: the z-coordinates of segments
+            - `pts`: the 3D coordinates of the neuron model per section
             - `d`: the diameters of segments
         """
         
@@ -134,7 +133,8 @@ class Neuron(object):
         """Calculate the currents in the neuron model.
         
         Propagates the self.record dictionary with new keys:
-            - `I`: a list of currents for each segment in the section of length `len(t)`.
+            - `currents`: a list of currents for each segment in 3D model in the
+              section of length `len(t)`.
         """
         if self.record is None:
             raise ValueError(
@@ -191,6 +191,47 @@ class Neuron(object):
             record[key]["currents"] = currents
         return self
 
+    def get_B(self, pts):
+        """Calculate and return the magnetic field at points `pts` in the space."""
+        if self.record is None:
+            raise ValueError(
+                """No simulation record found. Run a simulation first by specifying
+                    the process name in `.simulate('proc_name')`.""")
+        else:
+            record = self.record
+        
+        # Check if `currents` are calculated at any key in the record
+        if any(["currents" not in sec_dict for key, sec_dict in record.items() if key != "t" and key != "proc_name"]):
+            Warning("Didn't find Calculating currents first.")
+            self.calculate_currents()
+        
+        B = np.zeros((3, len(pts), len(record["t"])))
+        for key, sec_dict in record.items():
+            if key == "t" or key == "proc_name":
+                continue
+            
+            sec_pts = self.data_3d[key]["pts"]
+            currents = sec_dict["currents"]
+            
+            B[:, :, :] += get_b_njit(sec_pts, pts, currents)
+        return B
+    
+    def propagate_B(self, sensor):
+        """Propagate the magnetic field from the neuron model to the sensor points."""
+        if self.record is None:
+            raise ValueError(
+                """No simulation record found. Run a simulation first by specifying
+                    the process name in `.simulate('proc_name')`.""")
+        else:
+            record = self.record
+        
+        if "currents" not in record[key]:
+            self.calculate_currents()
+        
+        pts = sensor.points
+        B = self.get_magnetic_field(pts)
+        sensor.point_arrays["B"] = B
+        return sensor
 
     def load_3d_model(self):
         data = {}
@@ -198,11 +239,10 @@ class Neuron(object):
             xs = np.array([sec.x3d(i) for i in range(sec.n3d())])
             ys = np.array([sec.y3d(i) for i in range(sec.n3d())])
             zs = np.array([sec.z3d(i) for i in range(sec.n3d())])
+            pts = np.array([xs, ys, zs]).T
             ds = np.array([sec.diam3d(i) for i in range(sec.n3d())])
             data[sec.hname()] = {
-                "x": xs,
-                "y": ys,
-                "z": zs,
+                "pts": pts,
                 "d": ds  # diameters
             }
         self.data_3d = data
@@ -256,10 +296,8 @@ class Neuron(object):
         if sec_data is None:
             raise ValueError(f"Section '{sec}' not found in the 3D model.")
         
-        points = sec_data["x"], sec_data["y"], sec_data["z"]
-        points = np.array(points).T  # shape: (n_points, 3)
-        
-        diameters = np.array(sec_data["d"])
+        points = sec_data["pts"]
+        diameters = sec_data["d"]
         
         # Implement one section - one line policy
         if len(points) > 2:

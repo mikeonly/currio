@@ -174,13 +174,17 @@ class Neuron(object):
         elif isinstance(sec, str):
             meshes = {sec: self.get_section_mesh(sec)}
         
+        elif isinstance(sec, self.nrn.Section):
         elif isinstance(sec, self.h.Section):
+        elif isinstance(sec, self.nrn.Section):
             meshes = {sec.hname(): self.get_section_mesh(sec.hname())}
         
         elif isinstance(sec, list):
             if all([isinstance(s, str) for s in sec]):
                 meshes = {s: self.get_section_mesh(s) for s in sec}
+            elif all([isinstance(s, self.nrn.Section) for s in sec]):
             elif all([isinstance(s, self.h.Section) for s in sec]):
+            elif all([isinstance(s, self.nrn.Section) for s in sec]):
                 meshes = {sec.hname(): self.get_section_mesh(s.hname()) for s in sec}
             else:
                 raise ValueError("Invalid type for `sec`. It is a list, but the elements are not strings or NEURON sections.")
@@ -193,13 +197,21 @@ class Neuron(object):
             self.mesh = self.get_3d_mesh()
         return self
     
-    def get_section_mesh(self, sec_name):
+    def get_section_mesh(self, sec):
         if self.data_3d is None:
             self.load_3d_model()
         
-        sec_data = self.data_3d.get(sec_name, None)
+        if isinstance(sec, self.nrn.Section):
+            sec_data = self.data_3d.get(sec.hname(), None)
+        elif isinstance(sec, str):
+            sec_data = self.data_3d.get(sec, None)
+        else:
+            raise ValueError("""
+                Invalid type for `sec`. It should be either a string or a NEURON section,
+                but got type {} for `sec` {}.""".format(type(sec), sec))
+        
         if sec_data is None:
-            raise ValueError(f"Section '{sec_name}' not found in the 3D model.")
+            raise ValueError(f"Section '{sec}' not found in the 3D model.")
         
         points = sec_data["x"], sec_data["y"], sec_data["z"]
         points = np.array(points).T  # shape: (n_points, 3)

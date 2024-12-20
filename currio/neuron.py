@@ -232,7 +232,11 @@ class Neuron(object):
         else:
             spline = pv.Line(points[0], points[1])
             
+        spline = spline.compute_arc_length()
+        lengths = spline.point_data["arc_length"]
+            
         spline["diameter"] = diameters
         spline = spline.interpolate(spline, sharpness=10.0)
         mesh = spline.tube(radius=0.5, scalars="diameter", capping=True, absolute=True)
+        mesh.field_data["arc_length"] = lengths
         return mesh

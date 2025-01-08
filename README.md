@@ -138,14 +138,36 @@ WHAT'S DONE:
 - `Sensor` class can be instantiated with some bounds and resolutions and it outputs also a mesh that can be plotted together. 
 
 WHAT'S MISSING:
-- [ ] Implement a method `.simulate()` that would run a simulation procedure in the NEURON and save the results in the `Neuron` object: what are the parameters that need to be saved? Probably the name of the procedure, since there can be multiple simulations. What are the benefits of creating a separate class for the simulation? (Currently I see only added complexity.)
-- [ ] Implement a method `.get_B()` from a source that would propagate values of a magnetic field to the `Sensor` object.
+- [x] Implement a method `.simulate()` that would run a simulation procedure in the NEURON and save the results in the `Neuron` object: what are the parameters that need to be saved? Probably the name of the procedure, since there can be multiple simulations. What are the benefits of creating a separate class for the simulation? (Currently I see only added complexity.)
+- [x] Implement a method `.get_B()` from a source that would propagate values of a magnetic field to the `Sensor` object.
 - [ ] Calculate the effect the spread of the magnetic field across the sensor has on the detected ODMR. For that, we need a realistic diamond size. We can then calculate the magnetic field and find it's variation across the diamond. It's interesting to calculate the spread of the ODMR frequencies. The intensity of that frequency would be proportional to the volume of the diamond that experiences that field.
   
 Really a pie in the sky idea:
 
 + That would be nice to be able to select a point on a sensor and the what would be the measured ODMR plot at that point. 
 + Another nifty feature would be to have a sphere with θ and φ sliders that would select an NV axis and show the correspodning ODMR plot.
+
+# December 25, 2024
+
+Getting back to work on the project. From obvious, what is missing, is a way to save `Neuron` project and some associated `Sensor` objects to be loaded later. It would save time from running the simulation again and computing the magnetic field. What is the structure there? I don't know exactly how it is *best* done, but the way to proceed is to have a `Neuron` object that has a method `.save()` that saves the object to a file (i.e. to have *something* done). It should also have a method `.load()` that loads the object from a file.
+
+What is saved? 
+- `Sensor` object
+  - for `Sensor`, it has an associated `B` field, 
+- `.propagations`: list of `Propagation`, it does not need to be a separate class, just a dictionary with `sensor` and `neuron.record` from which the propagation is done. 
+
+- [ ] Implement a method `.save()` for `Neuron` object that saves the object to a file.
+- [ ] Implement a method `.load()` for `Neuron` object that loads the object from a file.
+
+Loading a saved neuron should reconstruct the Neuron object with different propagations. What is the goal here?
+
+- [ ] Calculate the effect the spread of the magnetic field across the sensor has on the detected ODMR. For that, we need a realistic diamond size: it is — 5×5×0.5 mm^3 with a 10 um layer of NVs. I.e. make a sensor of that size with a resolution of 0.5 um.
+- [ ] Implement setting up size of a sensor with physical units and with a given resolution, i.e. to be able to say `sensor = Sensor(bounds=("5 um", "5 um", "0.5 um"), resolution="0.5 um")`.
+
+After that is done, we can implement `sensor.get_ODMR()` that would calculate the ODMR at a given point of the sensor. Later, we should plot at several points and see how the ODMR changes across the sensor.
+
+- [ ] Implement recording what dendrites get synaptic inputs and when. 
+- [ ] Implement repeating same inputs for different simulations.
 
 
 # TODO

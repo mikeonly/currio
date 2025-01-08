@@ -1,13 +1,18 @@
+from typing import Union
 import numpy as np
 import pyvista as pv
 
 import os
 
 from scipy.interpolate import interp1d
+from scipy.sparse import csr_matrix, csc_matrix
 
 from currio import __modelpath__
+
+import currio
 from currio.compiled import get_b_njit
 from currio.utils import interp_along_axis
+from currio.sensor import Sensor
 
 
 class Neuron(object):
@@ -41,8 +46,9 @@ class Neuron(object):
         """
         
         self.records: list = []
-        self.record: dict = None
-        """Record dictionary of the simulation. Updated by `.create_record()` method.
+        self.record: dict = {}
+        """Record dictionary of the simulation. Updated by `.create_record()` and 
+        `.calculate_currents` methods.
         
         A list of dictionaries, each containing the voltage traces of the neuron model per section and
         a reference to the section object in NEURON. The keys of the dictionary are:
@@ -54,8 +60,10 @@ class Neuron(object):
             - `sec_name`: a dictionary with keys:
                 - `v`: a list of voltage traces `_ref_v` for each segment in the section, i.e.
                     `v[i]` is the voltage trace for the `i`-th segment in the section of length `len(t)`.
-                - `var_i`: a list of tracked variable passed to the `simulate` function as an argument
-                    `record` as `.simulate(record=['var_1', 'var_2', ...])` with the same structure as `v`.
+                - `var_i` (e.g. `currents`): a list of tracked variable passed to the `simulate` function 
+                    as an argument `record` as `.simulate(record=['var_1', 'var_2', ...])` with the 
+                    same structure as `v`, or it can also be a variable computed per segment in the 
+                    section by e.g. `.calculate_currents()`.
                 - `sec`: a reference to the section object in NEURON.
         """
         
@@ -63,6 +71,9 @@ class Neuron(object):
         """PyVista mesh of the neuron model. Updated by `.create_3d_mesh()` method. 
         Used to plot the 3D model of the neuron, to compute arc lengths along sections and 
         to store values for visualization."""
+        
+        self.measurement: dict = {}
+        self.measurements: list = []
         
     def load_model(self, model_name):
         os.chdir(self.model_path)
@@ -191,21 +202,31 @@ class Neuron(object):
             record[key]["currents"] = currents
         return self
 
-    def get_B(self, pts):
-        """Calculate and return the magnetic field at points `pts` in the space."""
+    def get_B(self, pts: Union[np.ndarray]) -> np.ndarray:
+        """Calculate and return the magnetic field at points `pts` or `sensor.points` 
+        in the space.
+        
+        If pts is a Sensor object, the magnetic field is calculated at the sensor points via
+        the `sensor.points` attribute.
+        """
         if self.record is None:
             raise ValueError(
                 """No simulation record found. Run a simulation first by specifying
                     the process name in `.simulate('proc_name')`.""")
         else:
             record = self.record
+            
+        if isinstance(pts, Sensor):
+            pts = pts.points
         
         # Check if `currents` are calculated at any key in the record
         if any(["currents" not in sec_dict for key, sec_dict in record.items() if key != "t" and key != "proc_name"]):
             Warning("Didn't find Calculating currents first.")
             self.calculate_currents()
         
-        B = np.zeros((3, len(pts), len(record["t"])))
+        nt = len(record["t"])
+        B = np.zeros((3, len(pts), nt))
+        
         for key, sec_dict in record.items():
             if key == "t" or key == "proc_name":
                 continue
@@ -214,6 +235,7 @@ class Neuron(object):
             currents = sec_dict["currents"]
             
             B[:, :, :] += get_b_njit(sec_pts, pts, currents)
+        
         return B
     
     def propagate_B(self, sensor):
@@ -225,11 +247,8 @@ class Neuron(object):
         else:
             record = self.record
         
-        if "currents" not in record[key]:
-            self.calculate_currents()
-        
         pts = sensor.points
-        B = self.get_magnetic_field(pts)
+        B = self.get_B(pts, pts)
         sensor.point_arrays["B"] = B
         return sensor
 

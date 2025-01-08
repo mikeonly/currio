@@ -11,3 +11,95 @@ Now we will import also the neuron shape to show alongside the field. Next we wi
 5. To export neuron tubes, we use the `tube` variable here in the notebook, defined in the section “3D visualization of a neuron”. To save it as a `vtk`, we use `tube.save("neuron_tubes.vtk")`. It exports also diameters of the tubes as a scalar field. 
 
 6. To export voltages with neuron tubes together, we need to create an appropriate `.ex2` file. 
+
+# Benchmarking `compiled.py` functions.
+
+For a sensor with 300 * 800 * 2 = 480000 points, the function `.get_B()` takes to run
+
+The current implementation is at 39694f2c commit. 
+
+```python
+@njit(parallel=True)
+def get_b_njit(current_pts, pts, current):
+    """Calculate the magnetic field produced by a current going through `current_pts` at
+    points in space `pts`.
+    
+    `current_pts` should be of shape (N, 3) where N is the number of points in the current path, and
+    `current` should be of shape (N-1, T) where T is the number of time points. `current` direction
+    is defined by the direction from `current_pts[i]` to `current_pts[i+1]`.
+    """
+    npts = len(pts)
+    nsegs = len(current_pts) - 1
+    nt = current.shape[1]
+    B = np.zeros((3, npts, nt))
+    
+    for i in prange(npts):
+        pt = pts[i]
+        for j in range(nsegs):
+            p1 = current_pts[j]
+            p2 = current_pts[j+1]
+            unit_B = unit_magnetic_field(pt, current_pts[j], current_pts[j+1])
+            for t_idx in range(nt):
+                B[:, i, t_idx] += unit_B * current[j, t_idx]
+    return B
+```
+
+Now we can use a double prange and also get rid of `t_idx` loop in favor of vectorized operations. 
+
+```python
+@njit(parallel=True)
+def get_b_njit(current_pts, pts, current):
+    """Calculate the magnetic field produced by a current going through `current_pts` at
+    points in space `pts`.
+    
+    `current_pts` should be of shape (N, 3) where N is the number of points in the current path, and
+    `current` should be of shape (N-1, T) where T is the number of time points. `current` direction
+    is defined by the direction from `current_pts[i]` to `current_pts[i+1]`.
+    """
+    npts = len(pts)
+    nsegs = len(current_pts) - 1
+    nt = current.shape[1]
+    B = np.zeros((3, npts, nt))
+    
+    for i in prange(npts):
+        pt = pts[i]
+        for j in prange(nsegs):
+            p1 = current_pts[j]
+            p2 = current_pts[j+1]
+            unit_B = unit_magnetic_field(pt, current_pts[j], current_pts[j+1])
+            B[:, i, :] += np.outer(unit_B, current[j, :])  # vectorized operation over time
+    return B
+```
+
+What we can also do is use the fact that `current` is usually a sparse matrix, so we can use `scipy.sparse` to store it. 
+
+```python
+
+from scipy.sparse import csr_matrix
+
+@njit(parallel=True)
+def get_b_njit(current_pts, pts, current: csr_matrix):
+    """Calculate the magnetic field produced by a current going through `current_pts` at
+    points in space `pts`.
+    
+    `current_pts` should be of shape (N, 3) where N is the number of points in the current path, and
+    `current` should be a sparse matrix of shape (N-1, T) where T is the number of time points. `current` direction
+    is defined by the direction from `current_pts[i]` to `current_pts[i+1]`.
+    """
+    npts = len(pts)
+    nsegs = len(current_pts) - 1
+    nt = current.shape[1]
+    B = np.zeros((3, npts, nt))
+    
+    for i in prange(npts):
+        pt = pts[i]
+        for j in prange(nsegs):
+            p1 = current_pts[j]
+            p2 = current_pts[j+1]
+            unit_B = unit_magnetic_field(pt, current_pts[j], current_pts[j+1])
+            nonzeros_idxs = current[j].nonzero()[1]
+            B[:, i, nonzeros_idxs] += np.outer(unit_B, current[j, nonzeros_idxs])  # vectorized operation over time
+    return B
+```
+
+I decided against using `scipy.sparse` because the overhead of converting the matrix plus the added complexity of indexing, etc., is not worth it. 

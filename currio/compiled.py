@@ -43,7 +43,6 @@ def get_b_njit(current_pts, pts, current):
         for j in prange(nsegs):
             p1 = current_pts[j]
             p2 = current_pts[j+1]
-            unit_B = unit_magnetic_field(pt, current_pts[j], current_pts[j+1])
-            for t_idx in range(nt):
-                B[:, i, t_idx] += unit_B * current[j, t_idx]
+            unit_B = unit_magnetic_field(pt, p1, p2)
+            B[:, i, :] += np.outer(unit_B, current[j])
     return B

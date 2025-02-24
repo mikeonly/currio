@@ -3,6 +3,9 @@ import numpy as np
 import pyvista as pv
 from scipy.interpolate import interp1d
 
+import textwrap
+
+
 
 def interp_along_axis(y, x, newx, axis):
     """Interpolate along a given axis of an array. Given an array y with shape (N, M), 
@@ -25,3 +28,7 @@ def interp_along_axis(y, x, newx, axis):
     newy = np.apply_along_axis(lambda y: interp1d(x, y, kind='linear', fill_value='extrapolate')(newx), axis, y)
     
     return newy
+
+# This will be a useful function for future, to explore available functions for a NEURON object
+def nrndir(obj):
+    print(textwrap.fill(', '.join([x for x in dir(obj) if not x.startswith('_')])))

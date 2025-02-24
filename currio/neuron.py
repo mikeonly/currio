@@ -12,14 +12,16 @@ from currio import __modelpath__
 import currio
 from currio.compiled import get_b_njit
 from currio.utils import interp_along_axis
-from currio.sensor import Sensor
+from currio.sensor import Sensor, RegularGridSensor
 
 
 class Neuron(object):
     def __init__(self, model_name=None, hocfile='mosinit.hoc'):
-        from neuron import h, nrn
+        from neuron import h, nrn, gui
         self.h = h
         self.nrn = nrn
+        self.gui = None
+        """NEURON GUI object. If not None, the GUI is initialized."""
         self.hocfile = hocfile
         
         # Look for the model in the modelpath
@@ -29,11 +31,14 @@ class Neuron(object):
                 model_name = str(model_name)
                 
             self.model_path = __modelpath__ / model_name
-        elif model_name is None:
+        else:
             # Assume the model is in the current working directory
             self.model_path = os.getcwd()
         
         self.load_model(model_name)
+        
+        # Extract the model ID from the model path
+        self.id = model_name.split("/")[-1]
         
         self.data_3d: dict = None
         """3D model of the neuron. Updated by `.load_3d_model()` method.
@@ -46,24 +51,28 @@ class Neuron(object):
         """
         
         self.records: list = []
-        self.record: dict = {}
-        """Record dictionary of the simulation. Updated by `.create_record()` and 
-        `.calculate_currents` methods.
+        self._active_record_idx = -1
+        self.record: dict = ...
+        """Record dictionary of the simulation. Updated by `.create_record()`, 
+        `.calculate_currents()` and `.propagate_B()` methods.
         
-        A list of dictionaries, each containing the voltage traces of the neuron model per section and
+        .records list of dictionaries, each containing the voltage traces of the neuron model per section and
         a reference to the section object in NEURON. The keys of the dictionary are:
         
-            - `proc_name`: the name of the procedure used to run the simulation.
+            - `proc_name`:  the name of the procedure used to run the simulation.
+            - `notes`: a string with notes about the simulation.
+            - `sensors`: a list of sensors (object references) to which 
+                           the magnetic field from the record was propagated.
             - `t`: the time vector 
             
             A key `sec_name` for each section in h.allsec():
             - `sec_name`: a dictionary with keys:
                 - `v`: a list of voltage traces `_ref_v` for each segment in the section, i.e.
                     `v[i]` is the voltage trace for the `i`-th segment in the section of length `len(t)`.
-                - `var_i` (e.g. `currents`): a list of tracked variable passed to the `simulate` function 
-                    as an argument `record` as `.simulate(record=['var_1', 'var_2', ...])` with the 
+                - `var_i` (e.g. `currents`): a list of tracked variables passed to the `simulate` function 
+                    as an argument `track_vars` in `.simulate(track_vars=['var_1', 'var_2', ...])` with the 
                     same structure as `v`, or it can also be a variable computed per segment in the 
-                    section by e.g. `.calculate_currents()`.
+                    section by e.g. `.calculate_currents()` and can have a different structure.
                 - `sec`: a reference to the section object in NEURON.
         """
         
@@ -72,15 +81,46 @@ class Neuron(object):
         Used to plot the 3D model of the neuron, to compute arc lengths along sections and 
         to store values for visualization."""
         
-        self.measurement: dict = {}
-        self.measurements: list = []
+    @property
+    def record(self):
+        """Active record from records list."""
+        if len(self.records) == 0:
+            raise ValueError("No records found. Run a simulation with `.simulate()` "
+                           "first to create a record.")
+        return self.records[self._active_record_idx]
+
+    @record.setter
+    def record(self, value):
+        self._record = value
+    
+    def set_active_record(self, record):
+        """Set the active record to the given record.
+        
+        Args:
+            record (int, string):  a record to set as active. If int, it is interpreted as the index of the record.
+                                  If string, it is interpreted as the name of the record.
+        """
+        if isinstance(record, int):
+            self._active_record_idx = record
+        elif isinstance(record, str):
+            self._active_record_idx = [r["proc_name"] for r in self.records].index(record)
+        else:
+            raise ValueError("Invalid type for `record`. It should be an int or a string.")
+        return self
+    
+    
+    def get_gui(self):
+        if self.gui is None:
+            from neuron import gui
+            self.gui = gui()
+        return self.gui
         
     def load_model(self, model_name):
         os.chdir(self.model_path)
         self.h.load_file(self.hocfile)
         return self
         
-    def simulate(self, proc_name, force=False, record=None):
+    def simulate(self, proc_name, force=False, track_vars=None):
         """Run a simulation procedure defined in the model .hoc file."""
         
         # Access and run the procedure
@@ -91,27 +131,100 @@ class Neuron(object):
             if r["proc_name"] == proc_name and not force:
                 raise ValueError("Simulation already run. Use `force=True` to run again.")
             
-        self.create_record(proc_name=proc_name, record=record)
+        self.create_record(proc_name=proc_name, track_vars=track_vars)
         getattr(self.h, proc_name)()
         self.convert_record()
         return self
         
-    def create_record(self, proc_name, record=None):
+    def create_record(self, proc_name, track_vars=None):
         """Creates a record of the simulation. Record is a dictionary with keys 
         as section names and values as dictionaries containing the voltage traces and 
         references to section objects in NEURON.
+        
+        The record dictionary contains:
+            - `proc_name`:  the name of the procedure used to run the simulation.
+            - `t`: the time vector 
+            
+            A key `sec_name` for each section in h.allsec():
+            - `sec_name`: a dictionary with keys:
+                - `v`: a list of voltage traces `_ref_v` for each segment in the section, i.e.
+                    `v[i]` is the voltage trace for the `i`-th segment in the section of length `len(t)`.
+                - `var_i` (e.g. `currents`): a list of tracked variables passed to the `simulate` function 
+                    as an argument `track_vars` in `.simulate(track_vars=['var_1', 'var_2', ...])` with the 
+                    same structure as `v`, or it can also be a variable computed per segment in the 
+                    section by e.g. `.calculate_currents()` and can have a different structure.
+                    See variable spec format below.
+                - `sec`: a reference to the section object in NEURON.
+
+        Args:
+            proc_name (string): The name of the procedure to record.
+            track_vars (list[str] or None): List of variable specifications to track. If None, defaults to ["*.v"],
+                                                i.e. always tracks voltages across all sections.
+            
+        Variable spec format:
+            {section_pattern}.{variable}
+            
+            - section_pattern: Pattern matching section names
+                * = all sections
+                soma = just soma section
+                dend* = all sections starting with "dend"
+                
+            - variable: Name of variable to record
+                v = membrane voltage
+                i_name = current for mechanism 'name'
+                name.var = variable 'var' from point process 'name'
+                
+        Examples:
+            - "*.v" - Record voltage from all sections
+            - "dend*.i_hh" - Record HH current from dendrites
+            - "*.syn.i" - Record synaptic current from sections with syn point process
+        
+        Returns:
+            self: Returns the Neuron object for chaining.
         """
         record = {}
         """Record dictionary of the simulation."""
+        
         record["proc_name"] = proc_name
         record["t"] = self.h.Vector().record(self.h._ref_t)
+
+        if track_vars is None:
+            track_vars = ["*.v"]  # Default to recording all voltages
+
+        if not isinstance(track_vars, list):
+            raise ValueError("`track_vars` must be a list of strings")
+
+        # Initialize record dictionary with empty sections
         for sec in self.h.allsec():
-            record[sec.name()] = {"v": []}
-            for seg in sec.allseg():
-                v = self.h.Vector().record(seg._ref_v)
-                record[sec.name()]["v"].append(v)
-                record[sec.name()]["sec"] = sec
-        
+            record[sec.name()] = {"sec": sec}
+
+        # Process each variable specification in `track_vars`
+        for var_spec in track_vars:
+            try:
+                section_pat, *var_parts = var_spec.split(".")
+                variable = ".".join(var_parts)  # Rejoin any remaining parts for point process vars
+                
+            except ValueError:
+                raise ValueError(f"Invalid variable specification: {var_spec}. " +
+                               "Must be in format: section_pattern.variable")
+
+            # Match sections according to pattern
+            for sec in self.h.allsec():
+                sec_name = sec.name()
+                if section_pat == "*" or sec_name.startswith(section_pat.replace("*", "")):
+                    # Initialize list for this variable if not already present
+                    if variable not in record[sec_name]:
+                        record[sec_name][variable] = []
+                    
+                    # Record variable for each segment
+                    for seg in sec.allseg():
+                        try:
+                            vec = self.h.Vector().record(getattr(seg, f"_ref_{variable}"))
+                            record[sec_name][variable].append(vec)
+                        except AttributeError:
+                            # Skip if variable doesn't exist for this segment
+                            record[sec_name][variable].append(None)
+
         # Rewrite the last recording 
         self.record = record
         # Add recording to the records list
@@ -164,11 +277,10 @@ class Neuron(object):
         else:
             data_3d = self.data_3d
         
-        for key, sec_dict in record.items():
-            if key == "t" or key == "proc_name":
-                continue
+        for sec in self.h.allsec():
+            key = sec.name()
+            sec_dict = record[key]
             
-            sec = sec_dict["sec"]
             voltages = sec_dict["v"]
             diameters = data_3d[key]["d"]
             
@@ -202,7 +314,7 @@ class Neuron(object):
             record[key]["currents"] = currents
         return self
 
-    def get_B(self, pts: Union[np.ndarray]) -> np.ndarray:
+    def get_B(self, pts: Union[np.ndarray, Sensor]) -> np.ndarray:
         """Calculate and return the magnetic field at points `pts` or `sensor.points` 
         in the space.
         
@@ -216,20 +328,25 @@ class Neuron(object):
         else:
             record = self.record
             
-        if isinstance(pts, Sensor):
+        if isinstance(pts, (Sensor, RegularGridSensor)):
             pts = pts.points
         
         # Check if `currents` are calculated at any key in the record
         if any(["currents" not in sec_dict for key, sec_dict in record.items() if key != "t" and key != "proc_name"]):
-            Warning("Didn't find Calculating currents first.")
+            Warning("Didn't find currents. Calculating currents first.")
+            self.calculate_currents()
+            
+        if len(self.records) == 0:
+            Warning("Didn't find any recorded simulations. Running a default procedure now.")
+            self.simulate("default")
             self.calculate_currents()
         
         nt = len(record["t"])
         B = np.zeros((3, len(pts), nt))
         
-        for key, sec_dict in record.items():
-            if key == "t" or key == "proc_name":
-                continue
+        for sec in self.h.allsec():
+            key = sec.name()
+            sec_dict = record[key]
             
             sec_pts = self.data_3d[key]["pts"]
             currents = sec_dict["currents"]
@@ -238,20 +355,42 @@ class Neuron(object):
         
         return B
     
-    def propagate_B(self, sensor):
+    def propagate_B(self, sensor, array_name=None):
         """Propagate the magnetic field from the neuron model to the sensor points."""
         if self.record is None:
-            raise ValueError(
+            raise RuntimeError(
                 """No simulation record found. Run a simulation first by specifying
                     the process name in `.simulate('proc_name')`.""")
         else:
             record = self.record
+            
+        if array_name is None:
+            array_name = "B" + "_" + self.id
         
         pts = sensor.points
-        B = self.get_B(pts, pts)
-        sensor.point_arrays["B"] = B
-        return sensor
+        B = self.get_B(pts)
+            
+        # Split vectors into components
+        for t_idx, t in enumerate(record["t"]):
+            datum = B[:, :, t_idx]
+            
+            # Add vector field as a point data with a time index
+            sensor.point_data[f'B_{self.id}_{t:.4f}'] = datum.T
+            
+        # Store time points as field data
+        sensor.field_data['t'] = record["t"]
+        sensor.field_data['t_units'] = ['ms']
 
+        # Track which sensors have fields propagated to them
+        if "sensors" not in record:
+            record["sensors"] = []
+        record["sensors"].append({
+            "sensor": sensor,
+            "array_name": array_name
+        })
+
+        return self
+    
     def load_3d_model(self):
         data = {}
         for sec in self.h.allsec():
@@ -332,3 +471,31 @@ class Neuron(object):
         mesh = spline.tube(radius=0.5, scalars="diameter", capping=True, absolute=True)
         mesh.field_data["arc_length"] = lengths
         return mesh
+    
+    def get_mechanisms(self, mech):
+        mechs = []
+        for sec in self.h.allsec():
+            for seg in sec.allseg():
+                for mech in seg:
+                    # Look for the mechanism in the segment
+                    if mech in mech.name():
+                        mechs.append({
+                            "sec": sec.hname(),
+                            "seg": seg.x,
+                            "mech": mech.name()
+                        })
+        return mechs
+    
+    def find_synapses(self):
+        synapses = []
+        for sec in self.h.allsec():
+            for seg in sec:
+                for mech in seg:
+                    # Look for synapse mechanisms
+                    if 'syn' in mech.name():
+                        synapses.append({
+                            'section': sec.name(),
+                            'position': seg.x,
+                            'mechanism': mech.name()
+                        })
+        return synapses

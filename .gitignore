@@ -1,11 +1,10 @@
-
 models/**/magfield**
 models/**/neuron_firing_mag**
 models/**/vtk**
 
 
-# Ignore everything in models subdirectories
-models/**/
-# But keep .ipynb files
+# Ignore everything in models subdirectories except .py and .ipynb
+models/**/*
 !models/**/*.ipynb
 !models/**/*.py
+# Keep the directories themselves

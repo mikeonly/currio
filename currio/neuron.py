@@ -16,6 +16,23 @@ from currio.sensor import Sensor, RegularGridSensor
 
 
 class Neuron(object):
+    """A class representing a neuron model from ModelDB.
+    
+    Handles loading, simulating, and analyzing NEURON models. Provides methods for
+    3D visualization and magnetic field computation.
+
+    Args:
+        model_name (str or int, optional): ModelDB ID or folder name. Defaults to None.
+        hocfile (str, optional): Main HOC file to load. Defaults to 'mosinit.hoc'.
+
+    Attributes:
+        h: NEURON simulator interface
+        model_path (Path): Path to model files
+        data_3d (dict): 3D model data per section
+        records (list): List of simulation records
+        record (dict): Current active record
+    """
+
     def __init__(self, model_name=None, hocfile='mosinit.hoc'):
         from neuron import h, nrn, gui
         self.h = h
@@ -116,6 +133,15 @@ class Neuron(object):
         return self.gui
         
     def load_model(self, model_name):
+        """Load a NEURON model from the models directory.
+
+        Args:
+            model_name (str, optional): Model ID or folder name. Defaults to None.
+
+        Raises:
+            FileNotFoundError: If model files not found
+            RuntimeError: If model fails to load
+        """
         os.chdir(self.model_path)
         self.h.load_file(self.hocfile)
         return self
@@ -314,13 +340,7 @@ class Neuron(object):
             record[key]["currents"] = currents
         return self
 
-    def get_B(self, pts: Union[np.ndarray, Sensor]) -> np.ndarray:
-        """Calculate and return the magnetic field at points `pts` or `sensor.points` 
-        in the space.
-        
-        If pts is a Sensor object, the magnetic field is calculated at the sensor points via
-        the `sensor.points` attribute.
-        """
+    
         if self.record is None:
             raise ValueError(
                 """No simulation record found. Run a simulation first by specifying
@@ -499,3 +519,65 @@ class Neuron(object):
                             'mechanism': mech.name()
                         })
         return synapses
+
+    def get_B(self, pts: Union[np.ndarray, Sensor]) -> np.ndarray:
+        """Calculate and return the magnetic field at points `pts` or `sensor.points` 
+        in the space.
+        
+        Uses Eq. (2) from Karadas et al.[^2] to compute the magnetic field from axial currents:
+
+        ..math::
+
+            \mathbf{B}(\mathbf{r},t) = \frac{\mu_0}{4\pi} \sum_i \frac{\mathbf{I}^{\mathrm{axial}}_i(t) \times \hat{\boldsymbol{\rho}}_n}{\rho_n} \left[\frac{h_n}{\sqrt{h_n^2 + \rho_n^2}} - \frac{l_n}{\sqrt{l_n^2 + \rho_n^2}}\right]
+
+        where:
+
+        * :math:`\mathbf{r}` is the observation point (sensor location)
+        * :math:`\mathbf{I}^{\mathrm{axial}}_i(t)` is the axial current at time t
+        * :math:`\rho_n` is the perpendicular distance to the segment
+        * :math:`\hat{\boldsymbol{\rho}}_n` is the unit vector perpendicular to the segment
+        * :math:`h_n, l_n` are the distances to the segment endpoints along its axis
+
+        (sum over all 3D point segments in the neuron geometry indexed by i)
+
+        Reference:
+            Karadas et al., "Feasibility and resolution limits of opto-magnetic imaging 
+            of neural network activity in brain slices using color centers in diamond," 
+            Scientific Reports, 2018.
+
+        Args:
+            pts: Array of points or Sensor object where to compute the field 
+                (if Sensor, then pts.points is used)
+
+        Returns:
+            np.ndarray: Magnetic field vectors at specified points
+
+        Raises:
+            ValueError: If no simulation record exists
+        """
+        if isinstance(pts, Sensor):
+            pts = pts.points
+        
+        # Check if `currents` are calculated at any key in the record
+        if any(["currents" not in sec_dict for key, sec_dict in self.record.items() if key != "t" and key != "proc_name"]):
+            Warning("Didn't find currents. Calculating currents first.")
+            self.calculate_currents()
+            
+        if len(self.records) == 0:
+            Warning("Didn't find any recorded simulations. Running a default procedure now.")
+            self.simulate("default")
+            self.calculate_currents()
+        
+        nt = len(self.record["t"])
+        B = np.zeros((3, len(pts), nt))
+        
+        for sec in self.h.allsec():
+            key = sec.name()
+            sec_dict = self.record[key]
+            
+            sec_pts = self.data_3d[key]["pts"]
+            currents = sec_dict["currents"]
+            
+            B[:, :, :] += get_b_njit(sec_pts, pts, currents)
+        
+        return B

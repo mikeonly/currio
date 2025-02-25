@@ -11,15 +11,14 @@
 - Saving and loading simulation results
 
 ## Table of Contents
-- [currio](#currio)
-  - [Table of Contents](#table-of-contents)
-  - [Installation](#installation)
-    - [Requirements](#requirements)
-    - [Verifying Installation](#verifying-installation)
-  - [Models](#models)
-    - [Getting Models](#getting-models)
-  - [Quick Start](#quick-start)
-  - [Installation for development](#installation-for-development)
+
+- [Installation](#installation)
+  - [Requirements](#requirements)
+  - [Verifying Installation](#verifying-installation)
+- [Models](#models)
+  - [Getting Models](#getting-models)
+- [Quick Start](#quick-start)
+- [Installation for development](#installation-for-development)
 
 ## Installation
 

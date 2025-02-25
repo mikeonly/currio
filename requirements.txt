@@ -1,7 +1,4 @@
-pandas
-matplotlib
 numpy
-torch
-tqdm
-matplotlib-scalebar
 neuron
+pyvista
+numba

@@ -129,10 +129,10 @@ class Neuron(object):
     def get_gui(self):
         if self.gui is None:
             from neuron import gui
-            self.gui = gui()
+            self.gui = gui
         return self.gui
         
-    def load_model(self, model_name):
+    def load_model(self, model_name=None):
         """Load a NEURON model from the models directory.
 
         Args:
@@ -142,8 +142,22 @@ class Neuron(object):
             FileNotFoundError: If model files not found
             RuntimeError: If model fails to load
         """
-        os.chdir(self.model_path)
-        self.h.load_file(self.hocfile)
+        # Change to model directory, self.model_path is a Path object, so convert it to str
+        success = self.h.chdir(str(self.model_path))
+        if success != 0:  # NEURON returns 0 on success of unix operations such as chdir
+                            # see https://www.neuron.yale.edu/neuron/static/new_doc/programming/system.html?highlight=load_dll#chdir
+            raise RuntimeError(f"Failed to change to model directory {self.model_path}")
+        
+        # Check if file exists
+        if not os.path.exists(self.hocfile):
+            raise FileNotFoundError(f"Could not find {self.hocfile} in {self.model_path}")
+        
+        # Try loading, use 1 as a first argument to force `load_file` even if such a file 
+        # has already been loaded.
+        success = self.h.load_file(1, self.hocfile)
+        if success != 1:  # NEURON returns 1 on success
+            raise RuntimeError(f"Failed to load {self.hocfile}")
+        
         return self
         
     def simulate(self, proc_name, force=False, track_vars=None):

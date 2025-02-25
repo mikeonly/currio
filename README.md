@@ -115,4 +115,31 @@ IO(neuron, sensor).plot()
 
 `pip install --no-build-isolation --no-deps -e .`
 
-After that, in the current python environment, you can import the module with `import currio` and use its functions with `currio.function_name()` everywhere! As a bonus, if you update any files in the `
+After that, in the current python environment, you can import the module with `import currio` and use its functions with `currio.function_name()` everywhere! As a bonus, if you update any files in the `currio` folder, you don't have to reinstall the package and pip will pick up the changes. To make the development even more interactive, add 
+
+```
+%reload_ext autoreload
+%autoreload 2
+```
+
+to the top of your notebook.
+
+### Conventions
+
+**Function naming**. All functions that return an object and do not change a state of an instance should be named with a noun and `get_` prefix, e.g. `get_data()`. 
+
+Functions that change a state of an instance should be named with a verb other than `get_`, e.g. `load_data()` or `create_record()`.
+
+## Contributing
+
+Contributions are welcome! Please feel free to submit a pull request or contact me via email. If you are using a piece of the code in your work, I will be grateful if you cite the package and (optionally) let me know about the work you are doing. 
+
+## License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## References
+
+[^1]: Carnevale, N.T. and Hines, M.L. The NEURON Book. Cambridge, UK: Cambridge University Press, 2006. ISBN 0-521-84319-7
+
+[^2]: M. Karadas, A. M. Wojciechowski, A. Huck, N. O. Dalby, U. L. Andersen, and A. Thielscher, "Feasibility and resolution limits of opto-magnetic imaging of neural network activity in brain slices using color centers in diamond," Scientific Reports, 2018, doi: 10.1038/s41598-018-22793-w.

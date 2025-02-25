@@ -1,3 +1,0 @@
-Time: 2025-02-08 16:37:27
-Neurons: 55035
-Sensors: b0c

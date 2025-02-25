@@ -1,10 +1,7 @@
-models/**/magfield**
-models/**/neuron_firing_mag**
-models/**/vtk**
+# Results directory contents aren't tracked
+/results/*
+!/results/.gitkeep
 
-
-# Ignore everything in models subdirectories except .py and .ipynb
-models/**/*
-!models/**/*.ipynb
-!models/**/*.py
-# Keep the directories themselves
+# Models directory contents aren't tracked
+/models/*
+!/models/.gitkeep

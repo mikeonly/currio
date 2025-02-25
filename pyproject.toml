@@ -1,13 +1,14 @@
 [project]
 name = "currio"
-version = "0.0.3"
+version = "0.1.0"
 
 authors = [
   { name="Mykhailo Flaks", email="mykhailo.flaks@gmail.com"},
 ]
 
-description = "Currio is a Python package for creating and simulating neuron models using NEURON simulator."
+description = "Currio is a Python package for creating, visualizing and simulating neuron models using NEURON simulator."
 readme = "README.md"
+license = {file = "LICENSE"}
 
 [build-system]
 requires = ["setuptools>=58.2.0", "wheel"]

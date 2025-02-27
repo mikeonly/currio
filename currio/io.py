@@ -177,10 +177,12 @@ class IO:
         
         # Plot all objects
         for o in plot_objects:
-            if isinstance(o, Neuron):
-                pl.add_mesh(o.create_3d_mesh().mesh)
-            elif isinstance(o, Sensor):
+            if isinstance(o, (Neuron, Sensor, NV)):
+                pl.add_mesh(o.mesh)
+            elif isinstance(o, pv.PolyData):
                 pl.add_mesh(o)
+            else:
+                raise TypeError(f"Cannot plot object {o} of type {type(o)}")
         
         # Store plotter reference if IO instance call
         if isinstance(self_or_cls_or_obj, IO):

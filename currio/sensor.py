@@ -13,6 +13,14 @@ class Sensor(pv.PolyData):
         self.id = "".join(random.choices(string.ascii_letters + string.digits, k=2) + \
             random.choices(string.ascii_letters, k=1)).lower()
         
+    @property
+    def mesh(self):
+        """Returns the 3D mesh of the sensor.
+        
+        Since the sensor is a PolyData object, it returns self, but can optimize mesh depending
+        on the availability of the field data in `B` point data."""
+        return self
+        
     def __repr__(self):
         """Custom string representation extending PolyData's repr with organized B fields."""
         # Get base PolyData representation

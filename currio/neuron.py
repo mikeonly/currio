@@ -13,7 +13,6 @@ import currio
 from currio.compiled import get_b_njit
 from currio.utils import interp_along_axis
 from currio.sensor import Sensor, RegularGridSensor
-from currio.io import IO
 
 
 class Neuron(object):
@@ -94,10 +93,9 @@ class Neuron(object):
                 - `sec`: a reference to the section object in NEURON.
         """
         
-        self.mesh: pv.MultiBlock = None
+        self._mesh: pv.MultiBlock = None  # Initialize private mesh attribute
         """PyVista mesh of the neuron model. Updated by `.create_3d_mesh()` method. 
-        Used to plot the 3D model of the neuron, to compute arc lengths along sections and 
-        to store values for visualization."""
+        Accessed by `.mesh` property."""
         
     @property
     def record(self):
@@ -314,10 +312,7 @@ class Neuron(object):
         else:
             record = self.record
             
-        if self.mesh is None:
-            mesh = self.create_3d_mesh().mesh
-        else:
-            mesh = self.mesh
+        mesh = self.mesh
         
         if self.data_3d is None:
             data_3d = self.load_3d_model().data_3d
@@ -439,12 +434,29 @@ class Neuron(object):
             
         meshes = pv.MultiBlock(meshes)
         return meshes
-
-    def create_3d_mesh(self):
-        if self.mesh is None:
-            self.mesh = self.get_3d_mesh()
-        return self
     
+    def create_3d_mesh(self):
+        """Create the 3D mesh if it doesn't exist."""
+        if self._mesh is None:
+            self._mesh = self.get_3d_mesh()
+        return self
+
+    @property
+    def mesh(self) -> pv.MultiBlock:
+        """Returns the 3D mesh of the neuron. PyVista mesh of the neuron model. 
+        Updated by `.create_3d_mesh()` method. Used to plot the 3D model of the neuron, 
+        to compute arc lengths along sections and to store values for visualization.
+        
+        Creates it if it doesn't exist, does not create a new mesh if it already exists."""
+        if self._mesh is None:
+            self.create_3d_mesh()
+        return self._mesh
+    
+    @mesh.setter
+    def mesh(self, value):
+        """Set the mesh value."""
+        self._mesh = value
+        
     def get_section_mesh(self, sec):
         if self.data_3d is None:
             self.load_3d_model()
@@ -615,12 +627,3 @@ class Neuron(object):
                     
         return "\n".join(neuron_str)
 
-    def save(self):
-        """Save neuron records to disk."""
-        IO._save_neuron(self)
-        return self
-
-    @classmethod
-    def load(cls, model_id):
-        """Load neuron from disk."""
-        return IO._load_neuron(model_id)

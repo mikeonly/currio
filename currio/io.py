@@ -8,6 +8,7 @@ import datetime
 import json
 import numpy as np
 
+
 class IO:
     def __init__(self, *objects):
         """An object to handle input and output of neurons and sensors simulations.
@@ -113,40 +114,8 @@ class IO:
                 record_str = "1 Record"
             else:
                 record_str = f"{n_records} Records"
-                
-            neuron_str = [f"Neuron `{n.id}` with {record_str}"]
             
-            # Add detailed record info if any exist
-            if hasattr(n, 'records') and n.records:
-                for r in n.records:
-                    proc_name = r.get('proc_name', 'unknown')
-                    t = r.get('t', [])
-                    
-                    # Get tracked variables by looking for array/list values
-                    tracked_vars = []
-                    for key, value in r.items():
-                        # Skip special keys
-                        if key in ['proc_name', 'notes', 'sensors', 't']:
-                            continue
-                        # If it's a section dictionary
-                        if isinstance(value, dict):
-                            # Add variables that have array/list values
-                            tracked_vars.extend(
-                                var_name for var_name, var_value in value.items()
-                                if isinstance(var_value, (list, np.ndarray))
-                                and var_name != 'sec'  # Skip section reference
-                            )
-                    
-                    vars_str = ", ".join(sorted(set(tracked_vars)))  # Remove duplicates
-                    
-                    if len(t) > 0:
-                        time_range = f"t=[{min(t):.1f}, {max(t):.1f}] ms"
-                        neuron_str.append(
-                            f"    Record `{proc_name}` with {len(t)} time points in {time_range}, "
-                            f"recorded values: {vars_str}"
-                        )
-            
-            neuron_info.append("\n".join(neuron_str))
+            neuron_info.append(n.__repr__())
             
         # Handle sensor count
         n_sensors = len(self.sensors)
@@ -466,4 +435,30 @@ def make_serializable(obj):
         return obj
         
     return str(obj)  # Fallback for other types
+
+def unmake_serializable(obj):
+    """Convert JSON-serialized data back into numpy arrays.
+    
+    Handles:
+    - Lists that should be numpy arrays
+    - Nested dictionaries
+    - Special keys that indicate array data
+    """
+    if isinstance(obj, dict):
+        # Handle record dictionary
+        result = {}
+        for key, value in obj.items():
+            if key in ["v", "currents", "interp_v", "t"]:  # Keys that should be arrays
+                result[key] = np.array(value)
+            else:
+                result[key] = unmake_serializable(value)
+        return result
+    elif isinstance(obj, list):
+        # Check if this list should be an array (contains numeric data)
+        if obj and all(isinstance(x, (int, float)) or 
+                      (isinstance(x, list) and all(isinstance(y, (int, float)) for y in x)) 
+                      for x in obj):
+            return np.array(obj)
+        return [unmake_serializable(x) for x in obj]
+    return obj
 

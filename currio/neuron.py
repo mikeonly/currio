@@ -284,7 +284,7 @@ class Neuron(object):
         record = self.record
         for key, sec_dict in record.items():
             if key == "t":
-                record["t"] = sec_dict.as_numpy()
+                record["t"] = np.array(sec_dict.as_numpy())
                 continue
             elif key == "proc_name":
                 continue
@@ -398,6 +398,7 @@ class Neuron(object):
         return self
     
     def load_3d_model(self):
+        """Load the 3D model of the neuron."""
         data = {}
         for sec in self.h.allsec():
             xs = np.array([sec.x3d(i) for i in range(sec.n3d())])
@@ -543,6 +544,10 @@ class Neuron(object):
         """
         if isinstance(pts, Sensor):
             pts = pts.points
+            
+        # Check if 3d model is loaded
+        if self.data_3d is None:
+            self.load_3d_model()
         
         # Check if `currents` are calculated at any key in the record
         if any(["currents" not in self.record[section] for section in self.record["sections"]]):
@@ -566,6 +571,50 @@ class Neuron(object):
             B[:, :, :] += get_b_njit(sec_pts, pts, currents)
         
         return B
+
+    def __repr__(self):
+        """Return string representation of the neuron model."""
+        if len(self.records) == 0:
+            record_str = "no records"
+        elif len(self.records) == 1:
+            record_str = "1 Record"
+        else:
+            record_str = f"{len(self.records)} Records"
+            
+        neuron_str = [f"Neuron `{self.id}` with {record_str}"]
+            
+        # Add detailed record info if any exist
+        if hasattr(self, 'records') and self.records:
+            for r in self.records:
+                proc_name = r.get('proc_name', 'unknown')
+                t = r.get('t', [])
+                
+                # Get tracked variables by looking for array/list values
+                tracked_vars = []
+                for key, value in r.items():
+                    # Skip special keys
+                    if key in ['proc_name', 'notes', 'sensors', 't']:
+                        continue
+                    # If it's a section dictionary
+                    if isinstance(value, dict):
+                        # Add variables that have array/list values
+                        tracked_vars.extend(
+                            var_name for var_name, var_value in value.items()
+                            if isinstance(var_value, (list, np.ndarray))
+                            and var_name != 'sec'  # Skip section reference
+                        )
+                
+                vars_str = ", ".join(sorted(set(tracked_vars)))  # Remove duplicates
+                
+                if len(t) > 0:
+                    time_range = f"t=[{min(t):.1f}, {max(t):.1f}] ms"
+                    neuron_str.append(
+                        f"    Record `{proc_name}` with {len(t)} time points in {time_range}, "
+                        f"recorded values: {vars_str}"
+                    )
+                    
+        return "\n".join(neuron_str)
+
     def save(self):
         """Save neuron records to disk."""
         IO._save_neuron(self)

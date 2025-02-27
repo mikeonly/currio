@@ -184,6 +184,7 @@ class Neuron(object):
         The record dictionary contains:
             - `proc_name`:  the name of the procedure used to run the simulation.
             - `t`: the time vector 
+            - `sections`: a list of section names
             
             A key `sec_name` for each section in h.allsec():
             - `sec_name`: a dictionary with keys:
@@ -222,11 +223,12 @@ class Neuron(object):
         Returns:
             self: Returns the Neuron object for chaining.
         """
-        record = {}
+        record = {
+            "proc_name": proc_name,
+            "t": self.h.Vector().record(self.h._ref_t),
+            "sections": []  # List of section names
+        }
         """Record dictionary of the simulation."""
-        
-        record["proc_name"] = proc_name
-        record["t"] = self.h.Vector().record(self.h._ref_t)
 
         if track_vars is None:
             track_vars = ["*.v"]  # Default to recording all voltages
@@ -236,7 +238,8 @@ class Neuron(object):
 
         # Initialize record dictionary with empty sections
         for sec in self.h.allsec():
-            record[sec.name()] = {"sec": sec}
+            record[sec.name()] = {}
+            record["sections"].append(sec.name())
 
         # Process each variable specification in `track_vars`
         for var_spec in track_vars:
@@ -252,7 +255,12 @@ class Neuron(object):
             for sec in self.h.allsec():
                 sec_name = sec.name()
                 if section_pat == "*" or sec_name.startswith(section_pat.replace("*", "")):
-                    # Initialize list for this variable if not already present
+                    # Add section name to list if not already there
+                    if sec_name not in record["sections"]:
+                        record["sections"].append(sec_name)
+                        record[sec_name] = {}
+
+                    # Initialize list for this variable if not present
                     if variable not in record[sec_name]:
                         record[sec_name][variable] = []
                     
@@ -262,7 +270,6 @@ class Neuron(object):
                             vec = self.h.Vector().record(getattr(seg, f"_ref_{variable}"))
                             record[sec_name][variable].append(vec)
                         except AttributeError:
-                            # Skip if variable doesn't exist for this segment
                             record[sec_name][variable].append(None)
 
         # Rewrite the last recording 
@@ -281,7 +288,6 @@ class Neuron(object):
             elif key == "proc_name":
                 continue
             
-            sec = sec_dict["sec"]
             for key, v in sec_dict.items():
                 if key == "sec":
                     continue
@@ -317,14 +323,14 @@ class Neuron(object):
         else:
             data_3d = self.data_3d
         
-        for sec in self.h.allsec():
-            key = sec.name()
-            sec_dict = record[key]
+        # Iterate through sections using the sections list
+        for section in self.record["sections"]:
+            sec = self.h.__getattr__(section)
+            sec_dict = self.record[section]
             
             voltages = sec_dict["v"]
-            diameters = data_3d[key]["d"]
-            
-            polydata = mesh[key]
+            diameters = data_3d[section]["d"]
+            polydata = mesh[section]
             
             # `v_dists` are distances along the section where voltages are calculated,
             # whereas `seg_points` are points from the 3D model of the neuron.
@@ -350,44 +356,9 @@ class Neuron(object):
             axial_resistance_per_units_length = axial_resistance / area
             
             currents = np.diff(interp_v, axis=0) / (seg_lengths[1:] * axial_resistance_per_units_length)[:, None]
-            record[key]["interp_v"] = interp_v
-            record[key]["currents"] = currents
+            sec_dict["interp_v"] = interp_v
+            sec_dict["currents"] = currents
         return self
-
-    
-        if self.record is None:
-            raise ValueError(
-                """No simulation record found. Run a simulation first by specifying
-                    the process name in `.simulate('proc_name')`.""")
-        else:
-            record = self.record
-            
-        if isinstance(pts, (Sensor, RegularGridSensor)):
-            pts = pts.points
-        
-        # Check if `currents` are calculated at any key in the record
-        if any(["currents" not in sec_dict for key, sec_dict in record.items() if key != "t" and key != "proc_name"]):
-            Warning("Didn't find currents. Calculating currents first.")
-            self.calculate_currents()
-            
-        if len(self.records) == 0:
-            Warning("Didn't find any recorded simulations. Running a default procedure now.")
-            self.simulate("default")
-            self.calculate_currents()
-        
-        nt = len(record["t"])
-        B = np.zeros((3, len(pts), nt))
-        
-        for sec in self.h.allsec():
-            key = sec.name()
-            sec_dict = record[key]
-            
-            sec_pts = self.data_3d[key]["pts"]
-            currents = sec_dict["currents"]
-            
-            B[:, :, :] += get_b_njit(sec_pts, pts, currents)
-        
-        return B
     
     def propagate_B(self, sensor, array_name=None):
         """Propagate the magnetic field from the neuron model to the sensor points."""
@@ -541,7 +512,7 @@ class Neuron(object):
         Uses Eq. (2) from Karadas et al.[^2] to compute the magnetic field from axial currents:
 
         ..math::
-
+        
             \mathbf{B}(\mathbf{r},t) = \frac{\mu_0}{4\pi} \sum_i \frac{\mathbf{I}^{\mathrm{axial}}_i(t) \times \hat{\boldsymbol{\rho}}_n}{\rho_n} \left[\frac{h_n}{\sqrt{h_n^2 + \rho_n^2}} - \frac{l_n}{\sqrt{l_n^2 + \rho_n^2}}\right]
 
         where:
@@ -573,8 +544,8 @@ class Neuron(object):
             pts = pts.points
         
         # Check if `currents` are calculated at any key in the record
-        if any(["currents" not in sec_dict for key, sec_dict in self.record.items() if key != "t" and key != "proc_name"]):
-            Warning("Didn't find currents. Calculating currents first.")
+        if any(["currents" not in self.record[section] for section in self.record["sections"]]):
+            print(Warning("Didn't find currents. Calculating currents first."))
             self.calculate_currents()
             
         if len(self.records) == 0:
@@ -585,11 +556,10 @@ class Neuron(object):
         nt = len(self.record["t"])
         B = np.zeros((3, len(pts), nt))
         
-        for sec in self.h.allsec():
-            key = sec.name()
-            sec_dict = self.record[key]
+        for section in self.record["sections"]:
+            sec_dict = self.record[section]
             
-            sec_pts = self.data_3d[key]["pts"]
+            sec_pts = self.data_3d[section]["pts"]
             currents = sec_dict["currents"]
             
             B[:, :, :] += get_b_njit(sec_pts, pts, currents)

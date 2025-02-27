@@ -13,6 +13,7 @@ import currio
 from currio.compiled import get_b_njit
 from currio.utils import interp_along_axis
 from currio.sensor import Sensor, RegularGridSensor
+from currio.io import IO
 
 
 class Neuron(object):
@@ -565,3 +566,12 @@ class Neuron(object):
             B[:, :, :] += get_b_njit(sec_pts, pts, currents)
         
         return B
+    def save(self):
+        """Save neuron records to disk."""
+        IO._save_neuron(self)
+        return self
+
+    @classmethod
+    def load(cls, model_id):
+        """Load neuron from disk."""
+        return IO._load_neuron(model_id)

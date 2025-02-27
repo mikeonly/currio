@@ -175,7 +175,7 @@ class IO:
             "\n  ".join(sensor_info)
         )
 
-    def plot(self_or_cls, *objects, **kwargs):
+    def plot(self_or_cls_or_obj, *objects, **kwargs):
         """Plots neurons and sensors.
         
         Can be called as either:
@@ -192,17 +192,19 @@ class IO:
         pl = pv.Plotter()
         
         # Determine what kind of call this is
-        if isinstance(self_or_cls, type):
+        if isinstance(self_or_cls_or_obj, type):
             # Class method call - plot provided objects
             plot_objects = objects
-        elif isinstance(self_or_cls, IO):
+        elif isinstance(self_or_cls_or_obj, IO):
             # Instance method call - combine with existing objects
-            plot_objects = self_or_cls.objects + list(objects)
-        elif isinstance(self_or_cls, (Neuron, Sensor)):
+            plot_objects = self_or_cls_or_obj.objects + list(objects)
+        elif isinstance(self_or_cls_or_obj, (Neuron, Sensor)):
             # Single object call - combine with additional objects
-            plot_objects = [self_or_cls] + list(objects)
+            plot_objects = [self_or_cls_or_obj] + list(objects)
+        elif isinstance(self_or_cls_or_obj, IO):
+            pass
         else:
-            raise TypeError(f"Cannot plot object of type {type(self_or_cls)}")
+            raise TypeError(f"Cannot plot object of type {type(self_or_cls_or_obj)}")
         
         # Plot all objects
         for o in plot_objects:
@@ -212,17 +214,17 @@ class IO:
                 pl.add_mesh(o)
         
         # Store plotter reference if IO instance call
-        if isinstance(self_or_cls, IO):
-            self_or_cls.pl = pl
+        if isinstance(self_or_cls_or_obj, IO):
+            self_or_cls_or_obj.pl = pl
         
         pl.show()
-        return self_or_cls if isinstance(self_or_cls, IO) else None
+        return self_or_cls_or_obj if isinstance(self_or_cls_or_obj, IO) else None
     
     def save(self):
         self.__class__.save(*self.neurons, *self.sensors)
     
     @classmethod
-    def save(*objects):
+    def save(cls, *objects):
         """Save neurons and their associated sensors to disk.
         
         Creates a flat structure:
@@ -257,30 +259,42 @@ class IO:
         resultspath = __resultpath__
         resultspath.mkdir(exist_ok=True)
         
-        # Implement the easy case: you pass only one sensor and a neuron with a record,
-        # so it just dumps records as a json, and sensor as a vtk.
         neurons = []
         sensors = []
         
-        for object in objects:
-            
-            if isinstance(object, Neuron):
-                records = []
-                for record in object.records:
-                    records.append(make_serializable(record))
-                    
-                neurons += [object]
+        # Save individual objects
+        for obj in objects:
+            if isinstance(obj, Neuron):
+                cls._save_neuron(obj, resultspath)
+                neurons.append(obj)
+            elif isinstance(obj, Sensor):
+                cls._save_sensor(obj, resultspath)
+                sensors.append(obj)
+        
+        # Create bundle file if any objects were saved
+        if len(neurons) + len(sensors) > 0:
+            cls._save_bundle(neurons, sensors, resultspath)
+        
+        return cls(*objects)
+    
+    @classmethod
+    def _save_neuron(cls, neuron, resultspath):
+        """Save a neuron's records to JSON."""
+        records = [make_serializable(record) for record in neuron.records]
+        
+        with open(resultspath / f"{neuron.id}.json", "w") as f:
+            json.dump(records, f, indent=2)
+        print(f"Saved records for Neuron {neuron.id} to {resultspath / f'{neuron.id}.json'}")
 
-                with open(resultspath / f"{object.id}.json", "w") as f:
-                    json.dump(records, f, indent=2)
-                    print(f"Saved records for Neuron {object.id} to {resultspath / f'{object.id}.json'}")
-            
-            elif isinstance(object, Sensor):
-                object.save(resultspath / f"{object.id}.vtk")
-                print(f"Saved data for Sensor {object.id} to {resultspath / f'{object.id}.vtk'}")
-                
-                sensors += [object]
-                
+    @classmethod
+    def _save_sensor(cls, sensor, resultspath):
+        """Save a sensor to VTK file."""
+        sensor.save(resultspath / f"{sensor.id}.vtk")
+        print(f"Saved data for Sensor {sensor.id} to {resultspath / f'{sensor.id}.vtk'}")
+
+    @classmethod
+    def _save_bundle(cls, neurons, sensors, resultspath):
+        """Save a bundle description file."""
         # Generate a name based on the number of description files
         io_id = f"{len(list(resultspath.glob('???-*.txt')))+1:03d}"
         
@@ -294,10 +308,9 @@ class IO:
             f.write(f"Time: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
             f.write(f"Neurons: {', '.join([o.id for o in neurons])}\n")
             f.write(f"Sensors: {', '.join([o.id for o in sensors])}\n")
-            
+        
         print(f"Saved io file to {io_filename}")
-        return IO(*objects)
-    
+
     def load(self, save_id):
         """Instance method version of load."""
         loaded = self.__class__.load(save_id)
@@ -311,77 +324,107 @@ class IO:
     def load(cls, save_id):
         """Load a saved simulation by ID.
         
+        Handles different ID formats:
+        - "55035" or 55035 -> Load neuron from results/55035.json
+        - "b0c" -> Load sensor from results/*b0c*.vtk
+        - "001" or 1 -> Load bundle from results/001-*.txt
+        
         Args:
-            save_id: Integer (e.g. 1) or string ID (e.g. "001"). Will find matching
-                    description file like "001-*.txt"
+            save_id (str or int): ID to load. Format determines what's loaded:
+                - ModelDB ID (>4 digits): loads neuron
+                - Sensor ID (alphanumeric): loads sensor
+                - Short numeric ID (3 digits): loads bundle
         
         Returns:
-            io: New io instance with loaded objects
+            Union[Neuron, Sensor, IO]: Single object or IO instance with multiple objects
         """
-        # Convert save_id to proper format
-        if isinstance(save_id, int):
-            save_id = f"{save_id:03d}"
-            
         results = __resultpath__
+        save_id = str(save_id)
         
-        # Find description file
-        desc_files = list(results.glob(f"{save_id}-*.txt"))
-        if not desc_files:
-            raise FileNotFoundError(f"No description file found for save ID {save_id}")
-        if len(desc_files) > 1:
-            raise ValueError(f"Multiple description files found for save ID {save_id}")
-            
-        desc_file = desc_files[0]
+        # Case 1: ModelDB ID (neuron)
+        if save_id.isdigit() and len(save_id) > 4:
+            return cls._load_neuron(save_id)
         
-        # Parse description file
+        # Case 2: Short numeric ID (bundle)
+        if save_id.isdigit() and len(save_id) <= 3:
+            save_id = f"{int(save_id):03d}"
+            bundle_files = list(results.glob(f"{save_id}*.txt"))
+            if bundle_files:
+                return cls._load_bundle(bundle_files[0])
+            raise FileNotFoundError(f"No bundle found for ID: {save_id}")
+        
+        # Case 3: Sensor ID
+        sensor_files = list(results.glob(f"*{save_id}*.vtk"))
+        if sensor_files:
+            return cls._load_sensor(sensor_files[0], save_id)
+        
+        raise FileNotFoundError(f"No files found matching ID: {save_id}")
+
+    @classmethod
+    def _load_neuron(cls, model_id):
+        """Load a neuron from its JSON file."""
+        neuron_file = __resultpath__ / f"{model_id}.json"
+        if not neuron_file.exists():
+            raise FileNotFoundError(f"No records for model {model_id}")
+        
+        with open(neuron_file) as f:
+            records = json.load(f)
+        
+        # Convert loaded data back to proper types, i.e. lists to numpy arrays
+        records = [unmake_serializable(record) for record in records]
+        
+        neuron = Neuron(model_id)
+        neuron.records = records
+        print(f"Loaded: {neuron}")
+        return neuron
+
+    @classmethod
+    def _load_sensor(cls, sensor_file, sensor_id):
+        """Load a sensor from its VTK file."""
+        sensor = pv.read(sensor_file)
+        sensor_obj = Sensor(sensor.points)
+        sensor_obj.point_data.update(sensor.point_data)
+        sensor_obj.field_data.update(sensor.field_data)
+        sensor_obj.id = sensor_id
+        print(f"Loaded: {sensor_obj}")
+        return sensor_obj
+
+    @classmethod
+    def _load_bundle(cls, desc_file):
+        """Load a bundle of neurons and sensors from description file."""
         with open(desc_file) as f:
             lines = f.readlines()
-            
-        # Extract neuron and sensor IDs
-        neuron_ids = []
-        sensor_ids = []
+        
+        neurons = []
+        sensors = []
         
         for line in lines:
             if line.startswith("Neurons:"):
                 neuron_ids = [n.strip() for n in line.split(":")[1].split(",")]
+                for nid in neuron_ids:
+                    if nid:  # Skip empty strings
+                        try:
+                            neurons.append(cls._load_neuron(nid))
+                        except FileNotFoundError as e:
+                            print(f"Warning: {e}")
+                            
             elif line.startswith("Sensors:"):
                 sensor_ids = [s.strip() for s in line.split(":")[1].split(",")]
-                
-        # Load neurons and their records
-        neurons = []
-        for nid in neuron_ids:
-            if not nid:
-                continue
-            record_file = results / f"{nid}.json"
-            if not record_file.exists():
-                raise FileNotFoundError(f"No records for model {nid}")
-                
-            with open(record_file) as f:
-                records = json.load(f)
-                
-            neuron = Neuron(nid)
-            neuron.records = records
-            neurons.append(neuron)
-            
-        # Load sensors
-        sensors = []
-        for sid in sensor_ids:
-            if not sid:
-                continue
-            sensor_file = results / f"{sid}.vtk"
-            if not sensor_file.exists():
-                raise FileNotFoundError(f"Sensor file not found: {sensor_file}")
-                
-            sensor = pv.read(sensor_file)
-            # Convert to our Sensor class while preserving data
-            sensor_obj = Sensor(sensor.points)
-            sensor_obj.point_data.update(sensor.point_data)
-            sensor_obj.field_data.update(sensor.field_data)
-            sensor_obj.id = sid
-            sensors.append(sensor_obj)
-            
-        return cls(*neurons, *sensors)
-    
+                for sid in sensor_ids:
+                    if sid:  # Skip empty strings
+                        sensor_files = list(__resultpath__.glob(f"*{sid}*.vtk"))
+                        if sensor_files:
+                            sensors.append(cls._load_sensor(sensor_files[0], sid))
+                        else:
+                            print(f"Warning: No sensor file found for ID {sid}")
+        
+        if len(neurons) + len(sensors) == 0:
+            raise FileNotFoundError("No objects found in bundle")
+        elif len(neurons) + len(sensors) == 1:
+            return neurons[0] if neurons else sensors[0]
+        
+        return cls(*(neurons + sensors))
+
     def add(self, *objects):
         """Add objects to the IO instance."""
         for obj in objects:

@@ -1,6 +1,7 @@
 import pyvista as pv
 from currio.neuron import Neuron
 from currio.sensor import Sensor
+from currio.diamond import NV
 
 from currio import __resultpath__
 
@@ -167,7 +168,7 @@ class IO:
         elif isinstance(self_or_cls_or_obj, IO):
             # Instance method call - combine with existing objects
             plot_objects = self_or_cls_or_obj.objects + list(objects)
-        elif isinstance(self_or_cls_or_obj, (Neuron, Sensor)):
+        elif isinstance(self_or_cls_or_obj, (Neuron, Sensor, NV)):
             # Single object call - combine with additional objects
             plot_objects = [self_or_cls_or_obj] + list(objects)
         elif isinstance(self_or_cls_or_obj, IO):
@@ -175,10 +176,37 @@ class IO:
         else:
             raise TypeError(f"Cannot plot object of type {type(self_or_cls_or_obj)}")
         
+        # TODO: Next step: make visualization of NV centers more informative, add axes labels
+        # TODO: Then, define orientation of the NV center relative to the sensor 
+        
         # Plot all objects
         for o in plot_objects:
-            if isinstance(o, (Neuron, Sensor, NV)):
+            if isinstance(o, (Neuron, Sensor)):
                 pl.add_mesh(o.mesh)
+            elif isinstance(o, NV):
+                # Add transparent tetrahedron
+                pl.add_mesh(o.mesh['tetrahedron'], opacity=0.2, color='lightgray')
+                
+                # Add NV axes with thicker lines
+                for axis_line in o.mesh['axes']:
+                    pl.add_mesh(axis_line, color='red', line_width=3)
+                
+                # Add coordinate axes at offset
+                scale = 1.0
+                offset = np.array([-scale, -scale, -scale]) + o.position
+                labels = ['x', 'y', 'z']
+                for i, (color, label) in enumerate(zip([(1,0,0), (0,1,0), (0,0,1)], labels)):
+                    direction = np.zeros(3)
+                    direction[i] = 1
+                    # Add axis line
+                    pl.add_mesh(pv.Line(offset, offset + direction * scale),
+                               color=color, line_width=2)
+                    # Add text label at end of axis with point marker to ensure visibility
+                    label_pos = offset + direction * scale * 1.1  # Slightly beyond axis end
+                    pl.add_mesh(pv.Sphere(radius=0.05, center=label_pos), color=color)  # Add visible point
+                    pl.add_point_labels([label_pos], [label], text_color=color, font_size=14, 
+                                      always_visible=True, shape_opacity=0.3)  # Make label always visible with semi-transparent background
+            
             elif isinstance(o, pv.PolyData):
                 pl.add_mesh(o)
             else:

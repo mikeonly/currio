@@ -5,7 +5,23 @@ from scipy.interpolate import interp1d
 
 import textwrap
 
+def get_point_along_spline(spline: pv.PolyData, distance, rel=True):
+    """Get a point along a spline at a given distance from the origin.
+    
+    Args:
+        spline: PyVista spline or any mesh with `arc_length` field data
+        distance: Distance from the origin along the spline
+        rel: If True, the distance is relative to the length of the spline
+    
+    Return:
+        point: Point in 3D space along the spline at the given distance
+    """
+    if rel:
+        distance = distance * \
+            spline.field_data["arc_length"][-1]  # multiply by the total length of the spline
 
+    idx = np.argmin(np.abs(spline.field_data["arc_length"] - distance))
+    return np.array(spline.points[idx])
 
 def interp_along_axis(y, x, newx, axis):
     """Interpolate along a given axis of an array. Given an array y with shape (N, M), 

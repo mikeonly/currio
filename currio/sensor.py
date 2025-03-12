@@ -6,7 +6,16 @@ import random
 import string
 
 class Sensor(pv.PolyData):
-    def __init__(self, points):
+    def __init__(self, points, 
+                 background: float = 50e-6, 
+                 background_direction: np.ndarray = np.array([0, 1, 0])):
+        """
+        Args:
+            points: numpy array of shape (n_points, 3)
+            background: float, background magnetic field in T
+            background_direction: numpy array of shape (3,) or str, background magnetic field direction. 
+                                    If str, it is assumed to be one of the following: 'x', 'y', 'z'.
+        """
         super().__init__(points)
         
         # generate a uuid with 3 symbols

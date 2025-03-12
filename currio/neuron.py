@@ -3,6 +3,8 @@ import numpy as np
 import pyvista as pv
 
 import os
+import re
+import fnmatch
 
 from scipy.interpolate import interp1d
 from scipy.sparse import csr_matrix, csc_matrix
@@ -11,9 +13,11 @@ from currio import __modelpath__
 
 import currio
 from currio.compiled import get_b_njit
-from currio.utils import interp_along_axis
+from currio.utils import interp_along_axis, get_point_along_spline
 from currio.sensor import Sensor, RegularGridSensor
 
+import neuron as NEURON
+from neuron import h, nrn, hoc
 
 class Neuron(object):
     """A class representing a neuron model from ModelDB.
@@ -32,13 +36,30 @@ class Neuron(object):
         records (list): List of simulation records
         record (dict): Current active record
     """
+    
+    point_processes = {
+        'names': ['Exp2Syn', 'IClamp'],
+        'styles': {
+            'Exp2Syn': {
+                'shape': 'sphere',
+                'radius': 0.5,  # μm
+                'color': 'red',
+                'opacity': 0.8
+            },
+            'IClamp': {
+                'shape': 'cube',
+                'size': 1.0,  # μm
+                'color': 'blue',
+                'opacity': 1.0
+            }
+            # Add other process types as needed
+        }
+    }
+    
+    # Make NEURON available as a class attribute
+    h = h
 
     def __init__(self, model_name=None, hocfile='mosinit.hoc'):
-        from neuron import h, nrn, gui
-        self.h = h
-        self.nrn = nrn
-        self.gui = None
-        """NEURON GUI object. If not None, the GUI is initialized."""
         self.hocfile = hocfile
         
         # Look for the model in the modelpath
@@ -108,6 +129,21 @@ class Neuron(object):
     @record.setter
     def record(self, value):
         self._record = value
+        
+    def clean(self):
+        """Clean the NEURON environment."""
+        # Clear all sections
+        for sec in h.allsec():
+            h.delete_section(sec=sec)
+            
+        # Clear various mechanisms
+        for list_name in ["FInitializeHandler", "LinearMechanism"]:
+            h.List(list_name).remove_all()
+        
+        # Force garbage collection
+        import gc
+        gc.collect()
+        return self
     
     def set_active_record(self, record):
         """Set the active record to the given record.
@@ -123,13 +159,6 @@ class Neuron(object):
         else:
             raise ValueError("Invalid type for `record`. It should be an int or a string.")
         return self
-    
-    
-    def get_gui(self):
-        if self.gui is None:
-            from neuron import gui
-            self.gui = gui
-        return self.gui
         
     def load_model(self, model_name=None):
         """Load a NEURON model from the models directory.
@@ -142,7 +171,7 @@ class Neuron(object):
             RuntimeError: If model fails to load
         """
         # Change to model directory, self.model_path is a Path object, so convert it to str
-        success = self.h.chdir(str(self.model_path))
+        success = h.chdir(str(self.model_path))
         if success != 0:  # NEURON returns 0 on success of unix operations such as chdir
                             # see https://www.neuron.yale.edu/neuron/static/new_doc/programming/system.html?highlight=load_dll#chdir
             raise RuntimeError(f"Failed to change to model directory {self.model_path}")
@@ -153,7 +182,7 @@ class Neuron(object):
         
         # Try loading, use 1 as a first argument to force `load_file` even if such a file 
         # has already been loaded.
-        success = self.h.load_file(1, self.hocfile)
+        success = h.load_file(1, self.hocfile)
         if success != 1:  # NEURON returns 1 on success
             raise RuntimeError(f"Failed to load {self.hocfile}")
         
@@ -163,7 +192,7 @@ class Neuron(object):
         """Run a simulation procedure defined in the model .hoc file."""
         
         # Access and run the procedure
-        if not hasattr(self.h, proc_name):
+        if not hasattr(h, proc_name):
             raise ValueError(f"Procedure '{proc_name}' not found in the model.")
         
         for r in self.records:
@@ -171,7 +200,7 @@ class Neuron(object):
                 raise ValueError("Simulation already run. Use `force=True` to run again.")
             
         self.create_record(proc_name=proc_name, track_vars=track_vars)
-        getattr(self.h, proc_name)()
+        getattr(h, proc_name)()
         self.convert_record()
         return self
         
@@ -224,7 +253,7 @@ class Neuron(object):
         """
         record = {
             "proc_name": proc_name,
-            "t": self.h.Vector().record(self.h._ref_t),
+            "t": h.Vector().record(h._ref_t),
             "sections": []  # List of section names
         }
         """Record dictionary of the simulation."""
@@ -232,11 +261,14 @@ class Neuron(object):
         if track_vars is None:
             track_vars = ["*.v"]  # Default to recording all voltages
 
-        if not isinstance(track_vars, list):
-            raise ValueError("`track_vars` must be a list of strings")
+        if not isinstance(track_vars, (list, str)):
+            raise ValueError("`track_vars` must be a list of strings or a single string")
+        
+        if isinstance(track_vars, str):
+            track_vars = [track_vars]
 
         # Initialize record dictionary with empty sections
-        for sec in self.h.allsec():
+        for sec in h.allsec():
             record[sec.name()] = {}
             record["sections"].append(sec.name())
 
@@ -251,7 +283,7 @@ class Neuron(object):
                                "Must be in format: section_pattern.variable")
 
             # Match sections according to pattern
-            for sec in self.h.allsec():
+            for sec in h.allsec():
                 sec_name = sec.name()
                 if section_pat == "*" or sec_name.startswith(section_pat.replace("*", "")):
                     # Add section name to list if not already there
@@ -266,7 +298,7 @@ class Neuron(object):
                     # Record variable for each segment
                     for seg in sec.allseg():
                         try:
-                            vec = self.h.Vector().record(getattr(seg, f"_ref_{variable}"))
+                            vec = h.Vector().record(getattr(seg, f"_ref_{variable}"))
                             record[sec_name][variable].append(vec)
                         except AttributeError:
                             record[sec_name][variable].append(None)
@@ -283,6 +315,8 @@ class Neuron(object):
         for key, sec_dict in record.items():
             if key == "t":
                 record["t"] = np.array(sec_dict.as_numpy())
+                continue
+            elif key == "sections":
                 continue
             elif key == "proc_name":
                 continue
@@ -321,7 +355,7 @@ class Neuron(object):
         
         # Iterate through sections using the sections list
         for section in self.record["sections"]:
-            sec = self.h.__getattr__(section)
+            sec = self.get(section)
             sec_dict = self.record[section]
             
             voltages = sec_dict["v"]
@@ -348,12 +382,14 @@ class Neuron(object):
             middle_diameters = (diameters[:-1] + diameters[1:])  / 2  # find the middle diameters
             
             
-            area = middle_diameters ** 2 * np.pi / 4 # cross-sectional area in um^2
-            axial_resistance_per_units_length = axial_resistance / area
+            area = middle_diameters ** 2 * np.pi / 4  # cross-sectional area in um^2
+            axial_resistance_per_units_length = axial_resistance / area  # Ohm*um/um^2 = Ohm/um
             
             currents = np.diff(interp_v, axis=0) / (seg_lengths[1:] * axial_resistance_per_units_length)[:, None]
+            """Axial currents. Units are: mV/ (um * Ohm/um) = mA"""
             sec_dict["interp_v"] = interp_v
             sec_dict["currents"] = currents
+            sec_dict["currents_units"] = "mA"
         return self
     
     def propagate_B(self, sensor, array_name=None):
@@ -376,11 +412,18 @@ class Neuron(object):
             datum = B[:, :, t_idx]
             
             # Add vector field as a point data with a time index
-            sensor.point_data[f'B_{self.id}_{t:.4f}'] = datum.T
+            key = format_field_key('B', self.id, t)
+            sensor.point_data[key] = datum.T
             
         # Store time points as field data
         sensor.field_data['t'] = record["t"]
         sensor.field_data['t_units'] = ['ms']
+        
+        # Update sensor field data to include which neuron id's fields are propagated to it
+        if "neuron_ids" not in sensor.field_data:
+            sensor.field_data['neuron_ids'] = []
+        
+        sensor.field_data['neuron_ids'].append(self.id)
 
         # Track which sensors have fields propagated to them
         if "sensors" not in record:
@@ -395,7 +438,7 @@ class Neuron(object):
     def load_3d_model(self):
         """Load the 3D model of the neuron."""
         data = {}
-        for sec in self.h.allsec():
+        for sec in h.allsec():
             xs = np.array([sec.x3d(i) for i in range(sec.n3d())])
             ys = np.array([sec.y3d(i) for i in range(sec.n3d())])
             zs = np.array([sec.z3d(i) for i in range(sec.n3d())])
@@ -458,10 +501,17 @@ class Neuron(object):
         self._mesh = value
         
     def get_section_mesh(self, sec):
+        # TODO: Rename to `get_obj_mesh` to allow for more general use, 
+        # e.g. for point processes, not only for sections. The call is the same,
+        # sec_data will be the content of the `data_3d` dictionary corresponding 
+        # to the object. Must distinguish between sections and point processes, i.e.
+        # `sec_data` (`obj_data`) should have either a key `type` with value `section` or
+        # `point_process`, or it should empirically determine if the item has `pts` or just 
+        # a `pt`. 
         if self.data_3d is None:
             self.load_3d_model()
         
-        if isinstance(sec, self.nrn.Section):
+        if isinstance(sec, nrn.Section):
             sec_data = self.data_3d.get(sec.hname(), None)
         elif isinstance(sec, str):
             sec_data = self.data_3d.get(sec, None)
@@ -491,34 +541,227 @@ class Neuron(object):
         mesh.field_data["arc_length"] = lengths
         return mesh
     
-    def get_mechanisms(self, mech):
-        mechs = []
-        for sec in self.h.allsec():
-            for seg in sec.allseg():
-                for mech in seg:
-                    # Look for the mechanism in the segment
-                    if mech in mech.name():
-                        mechs.append({
-                            "sec": sec.hname(),
-                            "seg": seg.x,
-                            "mech": mech.name()
-                        })
-        return mechs
+    def get_obj_3d(self, objs):
+        """Returns object 3D model from the NEURON model.
+        
+        Args:
+            objs: Either a string or a list of NEURON objects. 
+            
+        Returns:
+            list: List of mechanisms, each mechanism is a dictionary with keys:
+                - `sec`: section name
+                - `seg`: segment location
+                - `mech`: mechanism name
+        """
+        if isinstance(objs, str):
+            raise NotImplementedError("Not implemented for a single section.")
+        elif isinstance(objs, hoc.HocObject):
+            """If it is a list, it should be a list of NEURON objects, or a NEURON list itself, 
+            each element of which is a NEURON object that has `.get_segment()` method."""
+            try:
+                length = len(objs)
+                if length > 0:  # It's a list-like object we can iterate over
+                    data = []
+                    for i in range(length):
+                        obj = objs.__getitem__(i)
+                        datum = self.get_obj_3d(obj)
+                        data.append(datum)
+                    return data
+            except (TypeError, AttributeError):
+                # Not a list-like object, treat as single object
+                obj = objs
+                if not hasattr(obj, 'get_segment'):
+                    raise ValueError("The object should have a `.get_segment()` method, but object of " \
+                        "type {} does not have it.".format(type(obj)))
+                else:
+                    seg = obj.get_segment()
+                    x = seg.x
+                    sec = seg.sec.hname()
+                    pt = get_point_along_spline(self.mesh[sec], x)
+                    data = {
+                        "name": obj.hname(),
+                        "pt": pt,
+                        "sec": sec,
+                    }
+                    return data
+        else:
+            print(type(objs))
+                
+    def get_obj_mesh(self, objs, style=None):
+        """Returns a PyVista mesh of the specified objects.
+        
+        Args:
+            objs: Object(s) to visualize - can be:
+                - String or list of strings (section names)
+                - NEURON HocObject or list of objects with get_segment()
+            style: Dictionary to override default visualization styles
+                - If None, uses built-in styles from point_processes
+        
+        Returns:
+            pv.MultiBlock: Mesh containing visualizations of all specified objects
+        
+        Raises:
+            NotImplementedError: If object names aren't found in data_3d
+            ValueError: If objects don't have required attributes
+        """
+        # Initialize mesh container
+        mesh = pv.MultiBlock()
+        
+        # Ensure styles dictionary exists with defaults
+        if style is None:
+            style = {}
+        
+        # Get default styles from class
+        default_styles = self.point_processes['styles']
+        
+        # Process different input types
+        if isinstance(objs, str):
+            # Single section name
+            if objs in self.data_3d:
+                mesh[objs] = self.get_section_mesh(objs)
+            else:
+                raise NotImplementedError(f"Section '{objs}' not found in data_3d")
+            
+        elif isinstance(objs, list) and all(isinstance(o, str) for o in objs):
+            # List of section names
+            for name in objs:
+                if name in self.data_3d:
+                    mesh[name] = self.get_section_mesh(name)
+                else:
+                    raise NotImplementedError(f"Section '{name}' not found in data_3d")
+                
+        elif isinstance(objs, hoc.HocObject):
+            # Try to handle as NEURON object or list
+            try:
+                # Check if it's a list-like object
+                length = len(objs)
+                # It's a list, process each item
+                for i in range(length):
+                    obj = objs.__getitem__(i)
+                    # Get object class name (for styling)
+                    obj_type = obj.__class__.__name__
+                    
+                    # Get object data
+                    obj_data = self.get_obj_3d(obj)
+                    
+                    # Skip if data couldn't be obtained
+                    if obj_data is None:
+                        continue
+                        
+                    # Get visualization style
+                    obj_style = default_styles.get(obj_type, {
+                        'shape': 'sphere',
+                        'radius': 0.5,
+                        'color': 'gray',
+                        'opacity': 0.8
+                    })
+                    
+                    # Override with custom style if provided
+                    obj_style.update(style)
+                    
+                    # Create visualization shape
+                    if obj_style['shape'] == 'sphere':
+                        shape = pv.Sphere(
+                            radius=obj_style.get('radius', 0.5),
+                            center=obj_data['pt']
+                        )
+                    elif obj_style['shape'] == 'cube':
+                        size = obj_style.get('size', 1.0)
+                        shape = pv.Cube(
+                            x_length=size,
+                            y_length=size,
+                            z_length=size,
+                            center=obj_data['pt']
+                        )
+                    
+                    # Add to mesh collection
+                    mesh[f"{obj_type}_{i}"] = shape
+                    
+            except (TypeError, AttributeError):
+                # Not a list-like object, treat as single object
+                if hasattr(objs, 'get_segment'):
+                    # Get object class name for styling
+                    obj_type = objs.__class__.__name__
+                    
+                    # Get object data
+                    obj_data = self.get_obj_3d(objs)
+                    
+                    # Get visualization style
+                    obj_style = default_styles.get(obj_type, {
+                        'shape': 'sphere', 
+                        'radius': 0.5,
+                        'color': 'gray',
+                        'opacity': 0.8
+                    })
+                    
+                    # Override with custom style if provided
+                    if obj_type in style:
+                        obj_style.update(style[obj_type])
+                    
+                    # Create visualization shape
+                    if obj_style['shape'] == 'sphere':
+                        shape = pv.Sphere(
+                            radius=obj_style.get('radius', 0.5),
+                            center=obj_data['pt']
+                        )
+                    elif obj_style['shape'] == 'cube':
+                        size = obj_style.get('size', 1.0)
+                        shape = pv.Cube(
+                            x_length=size,
+                            y_length=size,
+                            z_length=size,
+                            center=obj_data['pt']
+                        )
+                    
+                    # Add to mesh collection
+                    mesh[f"{obj_type}_{objs.hname()}"] = shape
+                else:
+                    raise ValueError(f"Object of type {type(objs)} has no get_segment method")
+        else:
+            raise ValueError(f"Unsupported type: {type(objs)}")
+        
+        return mesh
     
-    def find_synapses(self):
-        synapses = []
-        for sec in self.h.allsec():
-            for seg in sec:
-                for mech in seg:
-                    # Look for synapse mechanisms
-                    if 'syn' in mech.name():
-                        synapses.append({
-                            'section': sec.name(),
-                            'position': seg.x,
-                            'mechanism': mech.name()
-                        })
-        return synapses
-
+    def get(self, name: str):
+        """Get a NEURON object by name.
+        
+        Args:
+            name: Name of the object to get
+            
+        """
+        name, index = name.split("[")
+        index = index.split("]")[0]
+        return getattr(h, name)[int(index)]
+    
+    def get_variable(self, spec):
+        record = self.record
+        # Regex to match: "section_name"[.(segment_pos)].variable_name
+        # All components except section_name and variable_name are optional
+        pattern = r'([\w\*]+)(?:\[(\d+)\])?(?:\(([0-9\.]+)\))?\.?([\w]+)'
+        match = re.match(pattern, spec)
+        
+        if not match:
+            raise ValueError(f"Invalid variable specification: {spec}. " \
+                "Must be in format: section_name[index](segment_pos).variable_name")
+        
+        section_pattern, segment_pattern, variable_name = match.groups()
+        
+        matching_sections = []
+        for section in record["sections"]:
+            if fnmatch.fnmatch(section, section_pattern):
+                matching_sections.append(section)
+        
+        if len(matching_sections) == 0:
+            raise ValueError(f"No sections matched the pattern: {section_pattern}")
+    
+        for section in matching_sections:
+            sec_dict = record[section]
+            if variable_name in sec_dict:
+                pass
+            
+            
+                
+            
     def get_B(self, pts: Union[np.ndarray, Sensor]) -> np.ndarray:
         """Calculate and return the magnetic field at points `pts` or `sensor.points` 
         in the space.
@@ -626,4 +869,19 @@ class Neuron(object):
                     )
                     
         return "\n".join(neuron_str)
+
+def format_field_key(field_type, neuron_id, timestamp, precision=4):
+    """
+    Create a standardized field key for sensor data.
+    
+    Args:
+        field_type (str): Type of field (e.g., 'B' for magnetic field)
+        neuron_id (str): Identifier of the neuron
+        timestamp (float): Time point in ms
+        precision (int): Number of decimal places for the timestamp
+        
+    Returns:
+        str: Formatted field key (e.g., 'B_55035_12.3456')
+    """
+    return f'{field_type}_{neuron_id}_{timestamp:.{precision}f}'
 

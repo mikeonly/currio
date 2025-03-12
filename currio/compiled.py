@@ -46,3 +46,63 @@ def get_b_njit(current_pts, pts, current):
             unit_B = unit_magnetic_field(pt, p1, p2)
             B[:, i, :] += np.outer(unit_B, current[j])
     return B
+
+@njit(parallel=True, fastmath=True)
+def get_odmr_shifts(B_fields, nv_axes, gamma):
+    """Calculate ODMR frequency shifts for B-field vectors and NV orientations.
+    
+    Efficiently handles different input shapes:
+    - Single B field vector: shape (3,)
+    - Multiple B field vectors: shape (n_points, 3)
+    
+    Args:
+        B_fields: Magnetic field vector(s)
+        nv_axes: NV axes, shape (n_axes, 3)
+        gamma: Gyromagnetic ratio in Hz/T
+        
+    Returns:
+        shifts: Frequency shifts with shape:
+               - (n_axes,) for single B field input
+               - (n_points, n_axes) for multiple B fields
+    """
+    # Check input dimensionality
+    is_single = B_fields.ndim == 1
+    n_axes = len(nv_axes)
+    
+    # Handle single B field vector (3,)
+    if is_single:
+        shifts = np.empty(n_axes, dtype=np.float64)
+        
+        # Unroll the loop for better performance
+        for a in prange(n_axes):
+            # Use explicit dot product computation
+            B_proj = (B_fields[0] * nv_axes[a, 0] + 
+                     B_fields[1] * nv_axes[a, 1] + 
+                     B_fields[2] * nv_axes[a, 2])
+            shifts[a] = 2.0 * gamma * B_proj
+            
+        return shifts
+        
+    # Handle multiple B field vectors (n_points, 3)
+    else:
+        n_points = len(B_fields)
+        shifts = np.empty((n_points, n_axes), dtype=np.float64)
+        
+        # Pre-compute constants
+        factor = 2.0 * gamma
+        
+        # Parallelize over spatial points
+        for p in prange(n_points):
+            # Cache B field components for better memory access
+            b_x = B_fields[p, 0]
+            b_y = B_fields[p, 1]
+            b_z = B_fields[p, 2]
+            
+            for a in prange(n_axes):
+                # Manually unrolled dot product for better performance
+                B_proj = (b_x * nv_axes[a, 0] + 
+                         b_y * nv_axes[a, 1] + 
+                         b_z * nv_axes[a, 2])
+                shifts[p, a] = factor * B_proj
+                
+        return shifts

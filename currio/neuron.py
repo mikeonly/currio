@@ -58,6 +58,9 @@ class Neuron(object):
     
     # Make NEURON available as a class attribute
     h = h
+    nrn = nrn
+    hoc = hoc
+    NEURON = NEURON
 
     def __init__(self, model_name=None, hocfile='mosinit.hoc'):
         self.hocfile = hocfile
@@ -170,6 +173,9 @@ class Neuron(object):
             FileNotFoundError: If model files not found
             RuntimeError: If model fails to load
         """
+        # In some cases, the model loading does not detect compiled mechanisms, 
+        # this is an attempt to properly point to where the mechanisms are. 
+        os.chdir(str(self.model_path))
         # Change to model directory, self.model_path is a Path object, so convert it to str
         success = h.chdir(str(self.model_path))
         if success != 0:  # NEURON returns 0 on success of unix operations such as chdir
@@ -421,9 +427,16 @@ class Neuron(object):
         
         # Update sensor field data to include which neuron id's fields are propagated to it
         if "neuron_ids" not in sensor.field_data:
-            sensor.field_data['neuron_ids'] = []
-        
-        sensor.field_data['neuron_ids'].append(self.id)
+            sensor.field_data['neuron_ids'] = [str(self.id)]
+        else:
+            # Get existing values as a numpy array
+            current_ids = sensor.field_data["neuron_ids"]
+            # Convert to list if it's not already
+            if not isinstance(current_ids, list):
+                current_ids = list(current_ids)
+            # Append and update
+            current_ids.append(self.id)
+            sensor.field_data["neuron_ids"] = current_ids
 
         # Track which sensors have fields propagated to them
         if "sensors" not in record:
@@ -824,7 +837,9 @@ class Neuron(object):
             currents = sec_dict["currents"]
             
             B[:, :, :] += get_b_njit(sec_pts, pts, currents)
-        
+            
+        # check if more than 10 values are NaN
+        assert np.sum(np.isnan(B)) < 10, "More than 10 values are NaN, found {}.".format(np.sum(np.isnan(B)))
         return B
 
     def __repr__(self):

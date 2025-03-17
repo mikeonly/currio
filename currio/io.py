@@ -13,6 +13,7 @@ import datetime
 import json
 import numpy as np
 import matplotlib.pyplot as plt
+import seaborn as sns
 
 class IO:
     def __init__(self, *objects):
@@ -149,9 +150,12 @@ class IO:
             "\n  ".join(sensor_info)
         )
 
-    def plot(self, *objects, **kwargs):
+    def plot(self, *objects, show=True, **kwargs):
         """Plot neurons and sensors. Delegates to module-level plot function."""
-        return plot(self, *objects, **kwargs)
+        objects = self.neurons + self.sensors + list(objects)
+        plotter = plot(*objects, **kwargs, show=show)
+        self.plotter = plotter
+        return plotter
     
     def save(self):
         self.__class__.save(*self.neurons, *self.sensors)
@@ -511,68 +515,20 @@ class IO:
                 y_label = f'{field_type} Field'
         else:
             value_labels = [f'{field_type}_{i}' for i in ['x', 'y', 'z']]
-            colors = ['r', 'g', 'b']
-            y_label = f'{field_type} Field'
+            # Define colorblind-safe categorical colors
+            colors = sns.color_palette('husl', n_colors=len(value_labels))
+            values = values * 1e9  # convert to pT, because values are in mT, if it's a field
+            y_label = f'{field_type} field, pT'
         
         # Create visualization based on backend
         if backend.lower() == 'matplotlib':
-            # Create 3D matplotlib waterfall plot
-            from mpl_toolkits.mplot3d import Axes3D
-            
-            fig = plt.figure(figsize=(12, 8))
-            if len(point_indices) > 1:
-                ax = fig.add_subplot(111, projection='3d')
-            else:
-                ax = fig.add_subplot(111)
-            
-            # Calculate offsets for better visualization
-            z_offset = np.max(np.abs(values)) * 0.3 if values.size > 0 else 1.0
-            
-            if len(point_indices) > 1:
-                for p_idx, point_idx in enumerate(point_indices):
-                    point_coord = self.sensor.points[point_idx]
-                    z_baseline = p_idx * z_offset
-                    
-                    # Plot each component/axis
-                    for v_idx in range(values.shape[2] if values.ndim > 2 else values.shape[1]):
-                        if values.ndim > 2:
-                            y_data = values[:, p_idx, v_idx]
-                        else:
-                            y_data = values[:, v_idx]
-                            
-                        ax.plot(time_points, y_data, zs=z_baseline, zdir='y', 
-                                label=f"Point {point_idx}" if v_idx == 0 else None,
-                                color=colors[v_idx % len(colors)])
-                        
-                        # Add a vertical line connecting to the baseline
-                        for t_idx in range(0, len(time_points), len(time_points)//5):  # Add lines at intervals
-                            ax.plot([time_points[t_idx], time_points[t_idx]], 
-                                    [z_baseline, z_baseline], 
-                                    [0, y_data[t_idx]], 
-                                    color='gray', linestyle=':', alpha=0.3)
-                            
-                # Add point labels along the y-axis
-                for p_idx, point_idx in enumerate(point_indices):
-                    point_coord = self.sensor.points[point_idx]
-                ax.text(time_points[0], p_idx * z_offset, 0, 
-                        f"Pt {point_idx} ({point_coord[0]:.1f}, {point_coord[1]:.1f}, {point_coord[2]:.1f})",
-                        color='black', fontsize=8)
-                
-                ax.set_zlabel(y_label)
-            else:
-                for i, vs in enumerate(values.T):
-                    ax.plot(time_points, vs, color=colors[i], label=value_labels[i])
-            
-            # Set labels and title
-            ax.set_xlabel('Time (ms)')
-            ax.set_ylabel('Point Index')
-            ax.set_title(f'Time Series for Multiple Points ({field_type})')
-            
-            # Add a legend for the value components
-            custom_lines = [plt.Line2D([0], [0], color=colors[i], lw=2) 
-                            for i in range(min(len(colors), values.shape[2] if values.ndim > 2 else values.shape[1]))]
-            ax.legend(custom_lines, value_labels[:len(custom_lines)], loc='upper right')
-            
+            fig, ax = plt.subplots()
+            for i in range(values.shape[1]):
+                ax.plot(time_points, values[:, i], label=value_labels[i],
+                        color=colors[i])
+            ax.set_xlabel('Time, ms')
+            ax.set_ylabel(y_label)
+            ax.legend()
             return fig
             
         elif backend.lower() == 'vedo':
@@ -802,9 +758,9 @@ def extract_field_timeseries(sensor, point_indices, field_type, neuron_id=None):
         return time_points, b_field_ts
 
 
-def plot(*objects, **kwargs):
+def plot(*objects, backend='notebook', show=True):
     """Plots neurons and sensors.
-    
+
     Can be called as either:
         IO.plot(neuron1, sensor1)     # Class method
         io(neuron1).plot(sensor1)     # Instance method
@@ -814,16 +770,34 @@ def plot(*objects, **kwargs):
     
     Args:
         *objects: Additional Neuron or Sensor objects to plot
-                 Combined with objects provided at initialization
+                combined with objects provided at initialization
+        backend: 'notebook' or 'window'. If backend is 'notebook', the plot 
+                will be displayed in the notebook using Trame. If backend 
+                is 'window', the plot will be displayed in a new window with 
+                a dedicated VTK renderer.
+        show: If True, the plot will be displayed. If False, the plot will not be displayed.
     """
-    pl = pv.Plotter()
+    if backend == 'notebook':
+        pl = pv.Plotter(notebook=True)
+    elif backend == 'window':
+        pl = pv.Plotter(notebook=False,
+                        off_screen=False,
+                        window_size=[1024, 768])
+        pl.background_color = 'white'  
+        # Enable custom interactions if needed
+        pl.enable_trackball_style()  # Or other camera styles
+        pl.enable_eye_dome_lighting()  # Better depth perception
+        pl.enable_depth_peeling()  # For better transparency rendering
+        
+    else:
+        raise ValueError(f"Unsupported backend: {backend}. Use 'notebook' or 'window'.")
     
     # TODO: Next step: make visualization of NV centers more informative, add axes labels
     # TODO: Then, define orientation of the NV center relative to the sensor 
     
     # Plot all objects
     for o in objects:
-        if isinstance(o, (Neuron, Sensor)):
+        if hasattr(o, 'mesh'):
             pl.add_mesh(o.mesh)
         elif isinstance(o, NV):
             # Add transparent tetrahedron
@@ -851,5 +825,22 @@ def plot(*objects, **kwargs):
         else:
             pl.add_mesh(o)
     
-    pl.show()
+    if show:
+        pl.show()
+    
+    if backend == 'window':
+        pl.close()
+    
     return pl
+
+
+def save(*objects):
+    """Save neurons and their associated sensors to disk.
+    
+    Can be called as either:
+        IO.save(neuron1, sensor1)     # Class method
+        io(neuron1).save(sensor1)     # Instance method
+        io().save(neuron1, sensor1)   # Instance method
+    """
+    io = IO().save(*objects)
+    return io

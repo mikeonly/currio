@@ -360,9 +360,9 @@ class Neuron(object):
             data_3d = self.data_3d
         
         # Iterate through sections using the sections list
-        for section in self.record["sections"]:
+        for section in record["sections"]:
             sec = self.get(section)
-            sec_dict = self.record[section]
+            sec_dict = record[section]
             
             voltages = sec_dict["v"]
             diameters = data_3d[section]["d"]
@@ -372,26 +372,28 @@ class Neuron(object):
             # whereas `seg_points` are points from the 3D model of the neuron.
             # They are different and voltages need to be interpolated to the 3D model points.
             v_dists = np.array([seg.x for seg in sec.allseg()]) * sec.L
-            seg_lengths = np.array(polydata.field_data["arc_length"])
-            seg_dists = np.cumsum(seg_lengths)
+            # "arc_length" is the distance from the origin of the section to the point on the spline
+            arc_lengths = np.array(polydata.field_data["arc_length"])
+            # "seg_lengths" is the distance between the points on the spline
+            seg_lengths = np.diff(arc_lengths)
             
             interp_v = interp_along_axis(
                 voltages, 
                 v_dists,
-                seg_dists,
+                arc_lengths,
                 axis=0)
 
             axial_resistance = sec.Ra  # axial resistance in Ohm*cm
             axial_resistance *= 1e4    # convert to Ohm*um
             
             # Cross-sectional area of the 3D segments
-            middle_diameters = (diameters[:-1] + diameters[1:])  / 2  # find the middle diameters
+            middle_diameters = (diameters[:-1] + diameters[1:]) / 2  # find the middle diameters
             
             
             area = middle_diameters ** 2 * np.pi / 4  # cross-sectional area in um^2
             axial_resistance_per_units_length = axial_resistance / area  # Ohm*um/um^2 = Ohm/um
             
-            currents = np.diff(interp_v, axis=0) / (seg_lengths[1:] * axial_resistance_per_units_length)[:, None]
+            currents = np.diff(interp_v, axis=0) / (seg_lengths * axial_resistance_per_units_length)[:, None]
             """Axial currents. Units are: mV/ (um * Ohm/um) = mA"""
             sec_dict["interp_v"] = interp_v
             sec_dict["currents"] = currents

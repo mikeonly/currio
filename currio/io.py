@@ -1,6 +1,10 @@
 import re
 
 import pyvista as pv
+from vtkmodules.vtkCommonCore import vtkCommand
+from vtkmodules.vtkInteractionWidgets import vtkHoverWidget
+from vtkmodules.vtkRenderingCore import vtkPointPicker
+
 from currio.neuron import Neuron, format_field_key
 from currio.sensor import Sensor
 from currio.diamond import NV
@@ -149,6 +153,10 @@ class IO:
             f"{sensor_header}:\n  " + 
             "\n  ".join(sensor_info)
         )
+        
+    def show(self):
+        """Show the plotter."""
+        self.plotter.show()
 
     def plot(self, *objects, show=True, **kwargs):
         """Plot neurons and sensors. Delegates to module-level plot function."""
@@ -156,6 +164,15 @@ class IO:
         plotter = plot(*objects, **kwargs, show=show)
         self.plotter = plotter
         return plotter
+    
+    def add_picker(self):
+        """Add a picker to the plotter."""
+        if self.plotter is None:
+            raise ValueError("No plotter to add picker to.")
+        elif self.plotter.iren is None:
+            self.plotter.iren.initialize()
+        self.plotter = add_picker(self.plotter)
+        return self.plotter
     
     def save(self):
         self.__class__.save(*self.neurons, *self.sensors)
@@ -758,7 +775,7 @@ def extract_field_timeseries(sensor, point_indices, field_type, neuron_id=None):
         return time_points, b_field_ts
 
 
-def plot(*objects, backend='notebook', show=True):
+def plot(*objects, backend='notebook', show=True, style=None, **kwargs):
     """Plots neurons and sensors.
 
     Can be called as either:
@@ -776,6 +793,9 @@ def plot(*objects, backend='notebook', show=True):
                 is 'window', the plot will be displayed in a new window with 
                 a dedicated VTK renderer.
         show: If True, the plot will be displayed. If False, the plot will not be displayed.
+        style: (dict) style parameters to be applied to passed objects, meshes, or the 
+                plot itself. 
+        **kwargs: Additional keyword arguments to be passed to the plotter.
     """
     if backend == 'notebook':
         pl = pv.Plotter(notebook=True)
@@ -786,8 +806,8 @@ def plot(*objects, backend='notebook', show=True):
         pl.background_color = 'white'  
         # Enable custom interactions if needed
         pl.enable_trackball_style()  # Or other camera styles
-        pl.enable_eye_dome_lighting()  # Better depth perception
-        pl.enable_depth_peeling()  # For better transparency rendering
+        # pl.enable_eye_dome_lighting()  # Better depth perception
+        # pl.enable_depth_peeling()  # For better transparency rendering
         
     else:
         raise ValueError(f"Unsupported backend: {backend}. Use 'notebook' or 'window'.")
@@ -822,8 +842,20 @@ def plot(*objects, backend='notebook', show=True):
                 pl.add_mesh(pv.Sphere(radius=0.05, center=label_pos), color=color)  # Add visible point
                 pl.add_point_labels([label_pos], [label], text_color=color, font_size=14, 
                                   always_visible=True, shape_opacity=0.3)  # Make label always visible with semi-transparent background
+        elif isinstance(o, (pv.PolyData, pv.MultiBlock)):
+            if style is None:
+                style = {}
+            pl.add_mesh(o, **style)
+        elif (
+            isinstance(o, tuple)
+            and len(o) == 2 
+            and isinstance(o[0], (pv.PolyData, pv.MultiBlock)) 
+            and isinstance(o[1], dict)
+             ):
+            # If a tuple, treat it as a mesh and style
+            pl.add_mesh(o[0], **o[1])
         else:
-            pl.add_mesh(o)
+            raise ValueError(f"Unsupported object type: {type(o)}")
     
     if show:
         pl.show()
@@ -844,3 +876,31 @@ def save(*objects):
     """
     io = IO().save(*objects)
     return io
+
+def add_picker(plotter):
+    """Add a picker to the plotter.
+    
+    Args:
+        plotter: The plotter to add the picker to.
+    """
+    picker = vtkPointPicker()
+    
+    def callback(_widget, event_name):
+        print(event_name)
+        x, y = plotter.iren.GetEventPosition()
+        renderer = plotter.iren.get_poked_renderer(x, y)
+        picker.Pick(x, y, 0, renderer)
+        point_idx = picker.GetPointId()
+        
+        if point_idx != -1:
+            mesh = picker.GetDataSet()
+            print(mesh.GetName(), event_name, point_idx)
+            
+    hw = vtkHoverWidget()
+    hw.SetInteractor(plotter.iren.interactor)
+    hw.SetTimerDuration(100)  # time in ms required to trigger a hover event
+    hw.AddObserver(vtkCommand.TimerEvent, callback)  # start of hover
+    hw.AddObserver(vtkCommand.EndInteractionEvent, callback)  # hover ended (mouse moved)
+    hw.EnabledOn()
+    
+    return plotter

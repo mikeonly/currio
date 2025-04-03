@@ -1,7 +1,7 @@
 from typing import Union
 import numpy as np
 import pyvista as pv
-
+import time
 import os
 import re
 import fnmatch
@@ -13,7 +13,7 @@ from currio import __modelpath__
 
 import currio
 from currio.compiled import get_b_njit
-from currio.utils import interp_along_axis, get_point_along_spline
+from currio.utils import interp_along_axis, get_point_along_spline, get_t_idx_from_times
 from currio.sensor import Sensor, RegularGridSensor
 
 import neuron as NEURON
@@ -523,6 +523,36 @@ class Neuron(object):
         # `sec_data` (`obj_data`) should have either a key `type` with value `section` or
         # `point_process`, or it should empirically determine if the item has `pts` or just 
         # a `pt`. 
+        spline = self.get_section_spline(sec)
+        lengths = spline.point_data["arc_length"]
+        
+        # Create a point mapping that will be used to map the scalar values to the tubes
+        # This will be automaticlly expanded by PyVista to the tube points, so it is possible
+        # to map scalars from the spline points to the tube points.
+        spline.point_data["spline_point_mapping"] = np.arange(spline.n_points)
+        
+        mesh = spline.tube(radius=0.5, scalars="diameter", capping=True, absolute=True)
+        mesh.field_data["arc_length"] = lengths
+        
+        return mesh
+    
+    def map_spline_scalars_to_tube(self, mesh, scalars):
+        """Map the scalars from the spline points to the tube points."""
+        # Get the point mapping from the mesh field data
+        point_mapping = mesh.point_data["spline_point_mapping"]
+        
+        
+        return mesh
+    
+    def get_section_spline(self, sec, t=None):
+        """Returns a PyVista spline of the section.
+        
+        Args:
+            sec: Either a string or a NEURON section.
+            
+        Returns:
+            pv.Spline: A PyVista spline of the section.
+        """
         if self.data_3d is None:
             self.load_3d_model()
         
@@ -548,15 +578,98 @@ class Neuron(object):
             spline = pv.Line(points[0], points[1])
             
         spline = spline.compute_arc_length()
-        lengths = spline.point_data["arc_length"]
-            
         spline["diameter"] = diameters
         spline = spline.interpolate(spline, sharpness=10.0)
-        mesh = spline.tube(radius=0.5, scalars="diameter", capping=True, absolute=True)
-        mesh.field_data["arc_length"] = lengths
-        return mesh
+        return spline
     
-    def get_obj_3d(self, objs):
+    def propagate_scalars(self, mesh=None, t=None):
+        """Propagate the time-dependent scalars to the mesh."""
+        if self.record is None:
+            raise ValueError("No simulation record found. Run a simulation first by specifying the process name in `.simulate('proc_name')`.")
+        record = self.record
+        
+        t0 = time.time()
+        
+        if mesh is None:
+            if self.mesh is None:
+                self.create_3d_mesh()
+            mesh = self.mesh
+        
+        if isinstance(mesh, str):
+            mesh = self.mesh[mesh]
+        elif isinstance(mesh, nrn.Section):
+            mesh = self.mesh[mesh.hname()]
+        elif isinstance(mesh, pv.MultiBlock):
+            for sec_name in mesh.keys():
+                sec_mesh = mesh[sec_name]
+                sec_mesh.name = sec_name  # a hack to pass the information about the section name along with section mesh
+                self.propagate_scalars(sec_mesh, t=t)
+            print("Time taken: " + str((time.time() - t0) * 1e3) + " ms")
+            return self
+        elif isinstance(mesh, pv.PolyData):
+            pass
+        else:
+            raise ValueError("Unknown type for `mesh`: {}.".format(type(mesh)))
+        
+        times = self.record["t"]
+        
+        if t is None:
+            ts, t_idcs = times, np.arange(len(times))
+        else:
+            ts, t_idcs = get_t_idx_from_times(t, times)
+            ts = [ts]
+            t_idcs = [t_idcs]
+            
+        if len(ts) > 1:
+            raise NotImplementedError("Propagating scalars to multiple times is not implemented yet.")
+        
+        if mesh.name == "user5[13]":
+            print(record[mesh.name])
+            
+        voltages = record[mesh.name].get("interp_v", None)
+        currents = record[mesh.name].get("currents", None)
+        
+        # Since the number of current values is -1 that of the number of points, 
+        # we need to interpolate the current values to correspond to the points.
+        # The smarter way (and a more physical one) would be to use the `currents` as 
+        # face data (i.e. data corresponding to the face between points), but tube 
+        # and splines do not provide an easy way to do this.
+        
+        # Interpolation works for cases where number of known values (i.e. number of 
+        # current values) is > 1. Otherwise, if only 1 current is known, it is impossible 
+        # to extend the values to more points (such as 2).
+        
+        if currents is not None:
+            if len(currents) == 1:
+                interp_currents = np.array([currents[0], currents[0]])  # duplicate the values if only one current is present
+            # Interpolate the current values to the number of points:  
+            else:
+                interp_currents = interp_along_axis(
+                    currents,
+                    np.linspace(0, 1, len(currents)),                           # number of points
+                    np.linspace(0, 1, len(currents) + 1),                   # number of current values
+                    axis=0
+                )
+        
+        try:
+            point_mapping = mesh.point_data["spline_point_mapping"]
+        except KeyError:
+            raise ValueError("No point mapping found in the mesh, which is required for fast scalar mapping. Run `.create_3d_mesh()`.")
+
+        for t_idx in t_idcs:
+            t = times[t_idx]
+            if voltages is not None:
+                voltage_label = format_field_key("voltage", None, t)
+                mesh.point_data[voltage_label] = voltages[:, t_idx][point_mapping]
+            if currents is not None:
+                current_label = format_field_key("current", None, t)
+                mesh.point_data[current_label] = interp_currents[:, t_idx][point_mapping]
+                
+        # print(f"\r{mesh.name} in {(time.time() - t0)*1e3:.4f} ms\n", end='')
+        
+        return self
+    
+    def get_obj_3d(self, objs, **kwargs):
         """Returns object 3D model from the NEURON model.
         
         Args:
@@ -577,9 +690,10 @@ class Neuron(object):
                 length = len(objs)
                 if length > 0:  # It's a list-like object we can iterate over
                     data = []
+                    times = {}
                     for i in range(length):
                         obj = objs.__getitem__(i)
-                        datum = self.get_obj_3d(obj)
+                        datum = self.get_obj_3d(obj, times=times)
                         data.append(datum)
                     return data
             except (TypeError, AttributeError):
@@ -600,7 +714,15 @@ class Neuron(object):
                     }
                     return data
         else:
-            print(type(objs))
+            # In case of hitting this case repeatedly, print with line clearing and 
+            # a x(n) indicator to show how many times it has been called
+            print_str = "\rAttempted to get 3D model of an object of type {}".format(type(objs))
+            times = kwargs.get("times", {})
+            if type(objs) not in times:
+                times[type(objs)] = 0
+            times[type(objs)] += 1
+            print_str += " x {} times".format(times[type(objs)])
+            print(print_str, end="")
                 
     def get_obj_mesh(self, objs, style=None):
         """Returns a PyVista mesh of the specified objects.
@@ -654,7 +776,7 @@ class Neuron(object):
                 for i in range(length):
                     obj = objs.__getitem__(i)
                     # Get object class name (for styling)
-                    obj_type = obj.__class__.__name__
+                    obj_type = obj.hname()
                     
                     # Get object data
                     obj_data = self.get_obj_3d(obj)
@@ -677,7 +799,7 @@ class Neuron(object):
                     # Create visualization shape
                     if obj_style['shape'] == 'sphere':
                         shape = pv.Sphere(
-                            radius=obj_style.get('radius', 0.5),
+                            radius=obj_style.get('radius'),
                             center=obj_data['pt']
                         )
                     elif obj_style['shape'] == 'cube':
@@ -690,9 +812,9 @@ class Neuron(object):
                         )
                     
                     # Add to mesh collection
-                    mesh[f"{obj_type}_{i}"] = shape
+                    mesh[f"{obj_type}"] = shape
                     
-            except (TypeError, AttributeError):
+            except (TypeError, AttributeError) as e:
                 # Not a list-like object, treat as single object
                 if hasattr(objs, 'get_segment'):
                     # Get object class name for styling
@@ -731,7 +853,10 @@ class Neuron(object):
                     # Add to mesh collection
                     mesh[f"{obj_type}_{objs.hname()}"] = shape
                 else:
-                    raise ValueError(f"Object of type {type(objs)} has no get_segment method")
+                    if not hasattr(objs, 'get_segment'):
+                        raise ValueError(f"Object {objs.hname()} of type {type(objs)} has no get_segment method")
+                    else: 
+                        raise e
         else:
             raise ValueError(f"Unsupported type: {type(objs)}")
         
@@ -887,18 +1012,21 @@ class Neuron(object):
                     
         return "\n".join(neuron_str)
 
-def format_field_key(field_type, neuron_id, timestamp, precision=4):
+def format_field_key(field_type, note, timestamp, precision=4):
     """
     Create a standardized field key for sensor data.
     
     Args:
         field_type (str): Type of field (e.g., 'B' for magnetic field)
-        neuron_id (str): Identifier of the neuron
+        note (str): A note to identify e.g. the neuron
         timestamp (float): Time point in ms
         precision (int): Number of decimal places for the timestamp
         
     Returns:
         str: Formatted field key (e.g., 'B_55035_12.3456')
     """
-    return f'{field_type}_{neuron_id}_{timestamp:.{precision}f}'
-
+    if note:
+        str = f'{field_type}_{note}_{timestamp:.{precision}f}'
+    else:
+        str = f'{field_type}_{timestamp:.{precision}f}'
+    return str.replace(" ", "_")

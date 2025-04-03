@@ -41,10 +41,24 @@ def interp_along_axis(y, x, newx, axis):
     newy_shape[axis] = len(newx)
     newy = np.empty(newy_shape)
 
+    # TODO: Use numpy.interp instead of the interp1d class in scipy
     newy = np.apply_along_axis(lambda y: interp1d(x, y, kind='linear', fill_value='extrapolate')(newx), axis, y)
-    
     return newy
+
+def get_t_idx_from_times(t, times):
+    """Parse `t` and return an element of `times` closest to `t`.
+    
+    Args:
+        t (float): Time point in ms
+        times (list): List of time points in ms
+    
+    Returns:
+        float: An element of `times` closest to `t`
+    """
+    idx = np.argmin(np.abs(np.array(times) - t))
+    return times[idx], idx
 
 # This will be a useful function for future, to explore available functions for a NEURON object
 def nrndir(obj):
     print(textwrap.fill(', '.join([x for x in dir(obj) if not x.startswith('_')])))
+    

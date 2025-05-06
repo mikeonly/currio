@@ -16,9 +16,6 @@ from currio.compiled import get_b_njit
 from currio.utils import interp_along_axis, get_point_along_spline, get_t_idx_from_times
 from currio.sensor import Sensor, RegularGridSensor
 
-import neuron as NEURON
-from neuron import h, nrn, hoc
-
 class Neuron(object):
     """A class representing a neuron model from ModelDB.
     
@@ -57,11 +54,6 @@ class Neuron(object):
     }
     
     # Make NEURON available as a class attribute
-    h = h
-    nrn = nrn
-    hoc = hoc
-    NEURON = NEURON
-
     def __init__(self, model_name=None, hocfile='mosinit.hoc'):
         self.hocfile = hocfile
         
@@ -121,6 +113,17 @@ class Neuron(object):
         """PyVista mesh of the neuron model. Updated by `.create_3d_mesh()` method. 
         Accessed by `.mesh` property."""
         
+    def initialize_NEURON(self):
+        """Initialize NEURON."""
+        try:
+            import neuron as NEURON
+            from neuron import h, nrn, hoc
+            self.h = h
+            self.nrn = nrn
+            self.hoc = hoc
+        except ImportError:
+            raise ImportError("NEURON could not be initialized. Please check NEURON installation.")
+        
     @property
     def record(self):
         """Active record from records list."""
@@ -136,12 +139,12 @@ class Neuron(object):
     def clean(self):
         """Clean the NEURON environment."""
         # Clear all sections
-        for sec in h.allsec():
-            h.delete_section(sec=sec)
+        for sec in self.h.allsec():
+            self.h.delete_section(sec=sec)
             
         # Clear various mechanisms
         for list_name in ["FInitializeHandler", "LinearMechanism"]:
-            h.List(list_name).remove_all()
+            self.h.List(list_name).remove_all()
         
         # Force garbage collection
         import gc
@@ -176,8 +179,9 @@ class Neuron(object):
         # In some cases, the model loading does not detect compiled mechanisms, 
         # this is an attempt to properly point to where the mechanisms are. 
         os.chdir(str(self.model_path))
+        self.initialize_NEURON()
         # Change to model directory, self.model_path is a Path object, so convert it to str
-        success = h.chdir(str(self.model_path))
+        success = self.h.chdir(str(self.model_path))
         if success != 0:  # NEURON returns 0 on success of unix operations such as chdir
                             # see https://www.neuron.yale.edu/neuron/static/new_doc/programming/system.html?highlight=load_dll#chdir
             raise RuntimeError(f"Failed to change to model directory {self.model_path}")
@@ -188,7 +192,7 @@ class Neuron(object):
         
         # Try loading, use 1 as a first argument to force `load_file` even if such a file 
         # has already been loaded.
-        success = h.load_file(1, self.hocfile)
+        success = self.h.load_file(1, self.hocfile)
         if success != 1:  # NEURON returns 1 on success
             raise RuntimeError(f"Failed to load {self.hocfile}")
         
@@ -198,7 +202,7 @@ class Neuron(object):
         """Run a simulation procedure defined in the model .hoc file."""
         
         # Access and run the procedure
-        if not hasattr(h, proc_name):
+        if not hasattr(self.h, proc_name):
             raise ValueError(f"Procedure '{proc_name}' not found in the model.")
         
         for r in self.records:
@@ -206,7 +210,7 @@ class Neuron(object):
                 raise ValueError("Simulation already run. Use `force=True` to run again.")
             
         self.create_record(proc_name=proc_name, track_vars=track_vars)
-        getattr(h, proc_name)()
+        getattr(self.h, proc_name)()
         self.convert_record()
         return self
         
@@ -259,7 +263,7 @@ class Neuron(object):
         """
         record = {
             "proc_name": proc_name,
-            "t": h.Vector().record(h._ref_t),
+            "t": self.h.Vector().record(self.h._ref_t),
             "sections": []  # List of section names
         }
         """Record dictionary of the simulation."""
@@ -274,7 +278,7 @@ class Neuron(object):
             track_vars = [track_vars]
 
         # Initialize record dictionary with empty sections
-        for sec in h.allsec():
+        for sec in self.h.allsec():
             record[sec.name()] = {}
             record["sections"].append(sec.name())
 
@@ -289,7 +293,7 @@ class Neuron(object):
                                "Must be in format: section_pattern.variable")
 
             # Match sections according to pattern
-            for sec in h.allsec():
+            for sec in self.h.allsec():
                 sec_name = sec.name()
                 if section_pat == "*" or sec_name.startswith(section_pat.replace("*", "")):
                     # Add section name to list if not already there
@@ -304,7 +308,7 @@ class Neuron(object):
                     # Record variable for each segment
                     for seg in sec.allseg():
                         try:
-                            vec = h.Vector().record(getattr(seg, f"_ref_{variable}"))
+                            vec = self.h.Vector().record(getattr(seg, f"_ref_{variable}"))
                             record[sec_name][variable].append(vec)
                         except AttributeError:
                             record[sec_name][variable].append(None)
@@ -453,7 +457,7 @@ class Neuron(object):
     def load_3d_model(self):
         """Load the 3D model of the neuron."""
         data = {}
-        for sec in h.allsec():
+        for sec in self.h.allsec():
             xs = np.array([sec.x3d(i) for i in range(sec.n3d())])
             ys = np.array([sec.y3d(i) for i in range(sec.n3d())])
             zs = np.array([sec.z3d(i) for i in range(sec.n3d())])
@@ -486,7 +490,7 @@ class Neuron(object):
             if all([isinstance(s, str) for s in sec]):
                 meshes = {s: self.get_section_mesh(s) for s in sec}
             elif all([isinstance(s, self.nrn.Section) for s in sec]):
-                meshes = {sec.hname(): self.get_section_mesh(s.hname()) for s in sec}
+                meshes = {s.hname(): self.get_section_mesh(s.hname()) for s in sec}
             else:
                 raise ValueError("Invalid type for `sec`. It is a list, but the elements are not strings or NEURON sections.")
             
@@ -524,17 +528,19 @@ class Neuron(object):
         # `point_process`, or it should empirically determine if the item has `pts` or just 
         # a `pt`. 
         spline = self.get_section_spline(sec)
-        lengths = spline.point_data["arc_length"]
-        
-        # Create a point mapping that will be used to map the scalar values to the tubes
-        # This will be automaticlly expanded by PyVista to the tube points, so it is possible
-        # to map scalars from the spline points to the tube points.
-        spline.point_data["spline_point_mapping"] = np.arange(spline.n_points)
-        
-        mesh = spline.tube(radius=0.5, scalars="diameter", capping=True, absolute=True)
-        mesh.field_data["arc_length"] = lengths
-        
-        return mesh
+        try:
+            lengths = spline.point_data["arc_length"]
+            
+            # Create a point mapping that will be used to map the scalar values to the tubes
+            # This will be automaticlly expanded by PyVista to the tube points, so it is possible
+            # to map scalars from the spline points to the tube points.
+            spline.point_data["spline_point_mapping"] = np.arange(spline.n_points)
+            
+            mesh = spline.tube(radius=0.5, scalars="diameter", capping=True, absolute=True)
+            mesh.field_data["arc_length"] = lengths
+            return mesh
+        except:
+            pass
     
     def map_spline_scalars_to_tube(self, mesh, scalars):
         """Map the scalars from the spline points to the tube points."""
@@ -556,7 +562,7 @@ class Neuron(object):
         if self.data_3d is None:
             self.load_3d_model()
         
-        if isinstance(sec, nrn.Section):
+        if isinstance(sec, self.nrn.Section):
             sec_data = self.data_3d.get(sec.hname(), None)
         elif isinstance(sec, str):
             sec_data = self.data_3d.get(sec, None)
@@ -574,8 +580,12 @@ class Neuron(object):
         # Implement one section - one line policy
         if len(points) > 2:
             spline = pv.Spline(points, len(points))
-        else:
+        elif len(points) == 2:
             spline = pv.Line(points[0], points[1])
+        else:
+            # Return an empty spline
+            return pv.Sphere(radius=0.5, center=[0, 0, 0])
+        
             
         spline = spline.compute_arc_length()
         spline["diameter"] = diameters
@@ -597,7 +607,7 @@ class Neuron(object):
         
         if isinstance(mesh, str):
             mesh = self.mesh[mesh]
-        elif isinstance(mesh, nrn.Section):
+        elif isinstance(mesh, self.nrn.Section):
             mesh = self.mesh[mesh.hname()]
         elif isinstance(mesh, pv.MultiBlock):
             for sec_name in mesh.keys():
@@ -683,7 +693,7 @@ class Neuron(object):
         """
         if isinstance(objs, str):
             raise NotImplementedError("Not implemented for a single section.")
-        elif isinstance(objs, hoc.HocObject):
+        elif isinstance(objs, self.hoc.HocObject):
             """If it is a list, it should be a list of NEURON objects, or a NEURON list itself, 
             each element of which is a NEURON object that has `.get_segment()` method."""
             try:
@@ -767,7 +777,7 @@ class Neuron(object):
                 else:
                     raise NotImplementedError(f"Section '{name}' not found in data_3d")
                 
-        elif isinstance(objs, hoc.HocObject):
+        elif isinstance(objs, self.hoc.HocObject):
             # Try to handle as NEURON object or list
             try:
                 # Check if it's a list-like object
@@ -871,7 +881,7 @@ class Neuron(object):
         """
         name, index = name.split("[")
         index = index.split("]")[0]
-        return getattr(h, name)[int(index)]
+        return getattr(self.h, name)[int(index)]
     
     def get_variable(self, spec):
         record = self.record

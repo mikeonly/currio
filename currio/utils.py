@@ -62,3 +62,58 @@ def get_t_idx_from_times(t, times):
 def nrndir(obj):
     print(textwrap.fill(', '.join([x for x in dir(obj) if not x.startswith('_')])))
     
+
+def parse_time_range(t_spec, times):
+    """Parse time range specification and return corresponding indices.
+    
+    Args:
+        t_spec (str or slice): Time range specification, e.g.:
+            - "10..20s"    (10 to 20 seconds)
+            - "-1..500ms"  (−1 to 500 milliseconds)
+            - "0..1s"      (0 to 1 second)
+            - "100..200"   (100 to 200 milliseconds, default unit)
+        times (np.ndarray): Array of time points in milliseconds
+    
+    Returns:
+        slice: Slice object with start and stop indices
+    """
+    if t_spec is None:
+        return slice(None)  # Return full range
+        
+    if isinstance(t_spec, slice):
+        return t_spec
+        
+    if not isinstance(t_spec, str):
+        raise ValueError(f"Time specification must be string or slice, got {type(t_spec)}")
+    
+    # Parse the range specification
+    try:
+        start, end = t_spec.split('..')
+    except ValueError:
+        raise ValueError(f"Invalid time range format: {t_spec}. Use 'start..end' format.")
+    
+    # Extract units if present
+    def parse_time_value(val):
+        if val.endswith('ms'):
+            return float(val[:-2])  # Already in ms
+        elif val.endswith('s'):
+            return float(val[:-1]) * 1000  # Convert seconds to ms
+        else:
+            return float(val)  # Assume ms
+            
+    try:
+        t_start = parse_time_value(start)
+        t_end = parse_time_value(end)
+    except ValueError as e:
+        raise ValueError(f"Could not parse time values in {t_spec}: {e}")
+    
+    # Find corresponding indices
+    idx_start = np.searchsorted(times, t_start)
+    idx_end = np.searchsorted(times, t_end)
+    
+    # Ensure we don't exceed array bounds
+    idx_start = max(0, min(idx_start, len(times)-1))
+    idx_end = max(0, min(idx_end, len(times)))
+    
+    return slice(idx_start, idx_end)
+    

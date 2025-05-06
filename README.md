@@ -30,6 +30,16 @@ cd currio
 pip install -e .
 ```
 
+Alternatively, if you install for development and you have all requirements installed, you can use the following command:
+
+```bash
+pip install --no-deps --no-build-isolation -e .
+```
+
+Here and above, `-e` is for editable mode: the package is installed in the editable mode so that the changes to the code are reflected immediately.
+
+
+
 ### Requirements
 
 `currio` requires NEURON simulator (tested with version 8.2.6). To check your NEURON installation:

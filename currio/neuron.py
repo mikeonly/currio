@@ -336,7 +336,7 @@ class Neuron(object):
                     continue
                 else:
                     # Each x is a HocObject of recorded values with length len(t), convert to np.array
-                    sec_dict[key] = np.array([x.as_numpy() for x in sec_dict[key]])
+                    sec_dict[key] = np.array([x.as_numpy() if x is not None else None for x in sec_dict[key]])
         
         self.record = record
         self.records[-1] = record

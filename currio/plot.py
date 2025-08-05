@@ -1,6 +1,8 @@
 import matplotlib.pyplot as plt
 import seaborn as sns
 
+from currio.utils import parse_time_range
+
 def plot(obj, neuron, section_name, ax=None, 
          cmap="viridis", backend="inline", t=None,
          **kwargs):
@@ -60,6 +62,9 @@ def plot(obj, neuron, section_name, ax=None,
         values = neuron.record[section_name]["interp_v"][:, t_slice]
         obj = "interpolated voltage"
         ylabel = "voltage, mV"
+    elif obj.startswith("i"):
+        values = neuron.record[section_name][obj][:, t_slice]
+        ylabel = fr"current, {obj} (mA/cm$^2$)"
     else:
         raise ValueError(f"Invalid object type: {obj}")
     

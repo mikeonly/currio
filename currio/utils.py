@@ -62,7 +62,6 @@ def get_t_idx_from_times(t, times):
 def nrndir(obj):
     print(textwrap.fill(', '.join([x for x in dir(obj) if not x.startswith('_')])))
     
-
 def parse_time_range(t_spec, times):
     """Parse time range specification and return corresponding indices.
     
@@ -117,3 +116,65 @@ def parse_time_range(t_spec, times):
     
     return slice(idx_start, idx_end)
     
+def get_multipole_expansion_from_line_currents(currents, pts, order=0, r0=np.array([0, 0, 0])):
+    """Compute n-th order of multipole expansion of the current. 
+    Current is a list of values of the current in units of current (A, mA) and `pts` are 
+    points between which the current is flowing.
+    
+    currents: (array-like of length (N-1,)) list of current values in units of current (A, mA)
+    pts: (array-like of length (N, 3)) list of points between which the current is flowing
+    order: (int) order of the multipole expansion
+    r0: (array-like of length (3)) reference point for the multipole expansion, default: (0, 0, 0)
+    """
+    npts = len(pts)
+    nsegs = len(currents)
+    
+    if npts - 1 != nsegs:
+        raise ValueError("Number of points must be one more than number of segments, "
+                        "got `pts` with length {} and `currents` with length {}".format(npts, nsegs))
+
+    if order == 0:
+        """Compute monopole expansion, i.e. the vector sum of all the currents."""
+        return np.sum(current_vecs, axis=0)
+    
+    midpoints = (pts[:-1] + pts[1:]) / 2
+    seglengths = np.linalg.norm(pts[1:] - pts[:-1], axis=1)
+    
+    # Pre-allocate arrays
+    current_vecs = np.zeros((3, nsegs))
+    current_vecs = currents[:, np.newaxis] * (pts[1:] - pts[:-1]) / seglengths[:, np.newaxis]
+    
+    if order == 1:
+        """Compute dipole expansion, i.e. the vector sum of 
+        
+        \sum_{i=1}^{N-1} seglength_i * \vec{I}_i × (pm_i - r0),
+        
+        where \vec{I}_i is the computed directed current in `current_vecs`,
+        and pm_i is the midpoint between points i and i+1.
+        """
+        return 0.5 * np.sum(seglengths[:, np.newaxis] *  np.cross(current_vecs, (midpoints - r0)), axis=0)
+        
+    else:
+        raise NotImplementedError(f"Order {order} is not implemented yet")
+    
+def get_multipole_expansion_from_current_density(currents, pts, volume_element, order=0, r0=np.array([0, 0, 0])):
+    """
+    
+    Input:
+        currents: (array-like of length (N, 3)) list of current densities values in units of current (A/m^2)
+        pts: (array-like of length (N, 3)) list of points between which the current is flowing
+        volume_element: (float) volume element of the current density (m^3)
+        
+        order: (int) order of the multipole expansion
+        
+        r0: (array-like of length (3)) reference point for the multipole expansion, default: (0, 0, 0)
+    """
+    
+    if order == 0:
+        return np.sum(currents, axis=0) * volume_element
+    
+    if order == 1:
+        return 0.5 * np.sum(np.cross((pts - r0[np.newaxis, :]), currents), axis=0) * volume_element
+        # dimensions are: 
+        # pts - r0: (N, 3) - (3,) = (N, 3)
+        # currents: (N, 3)

@@ -106,3 +106,69 @@ def get_odmr_shifts(B_fields, nv_axes, gamma):
                 shifts[p, a] = factor * B_proj
                 
         return shifts
+    
+@njit(parallel=True, fastmath=True)
+def get_multipole_expansion(currents, pts, order=0, r0=None):
+    """Compute n-th order of multipole expansion of the current. 
+    Current is a list of values of the current in units of current (A, mA) and `pts` are 
+    points between which the current is flowing.
+    
+    currents: (array-like of length (N-1,)) list of current values in units of current (A, mA)
+    pts: (array-like of length (N, 3)) list of points between which the current is flowing
+    order: (int) order of the multipole expansion
+    r0: (array-like of length (3)) reference point for the multipole expansion, default: (0, 0, 0)
+    
+    Returns:
+        (a vector of length (n_order * 3)) n-th order of multipole expansion of the current
+    """
+    npts = len(pts)
+    nsegs = len(currents)
+    
+    assert npts - 1 == nsegs, "Number of points must be one more than number of segments"
+    
+    # Pre-allocate arrays
+    current_vecs = np.zeros((3, nsegs))
+    result = np.zeros(3)
+    
+    # Compute current vectors
+    for i in prange(nsegs):
+        current_vecs[0, i] = currents[i] * (pts[i+1, 0] - pts[i, 0])
+        current_vecs[1, i] = currents[i] * (pts[i+1, 1] - pts[i, 1])
+        current_vecs[2, i] = currents[i] * (pts[i+1, 2] - pts[i, 2])
+    
+    if order == 0:
+        """Compute monopole expansion, i.e. the vector sum of all the currents."""
+        for i in prange(3):
+            result[i] = np.sum(current_vecs[i, :])
+        return result
+    
+    elif order == 1:
+        """Compute dipole expansion, i.e. the vector sum of 
+        
+        \sum_{i=1}^{N-1} \vec{I}_i × (pm_i - r0),
+        
+        where \vec{I}_i is the computed directed current in `current_vecs`,
+        and pm_i is the midpoint between points i and i+1.
+        """
+        midpoints = np.zeros((nsegs, 3))
+        for i in prange(nsegs):
+            midpoints[i, 0] = 0.5 * (pts[i, 0] + pts[i+1, 0])
+            midpoints[i, 1] = 0.5 * (pts[i, 1] + pts[i+1, 1])
+            midpoints[i, 2] = 0.5 * (pts[i, 2] + pts[i+1, 2])
+        
+        # Compute dipole expansion
+        for i in prange(nsegs):
+            # Compute relative position
+            rx = midpoints[i, 0] - r0[0]
+            ry = midpoints[i, 1] - r0[1]
+            rz = midpoints[i, 2] - r0[2]
+            
+            # Compute cross product manually for better performance
+            result[0] += current_vecs[1, i] * rz - current_vecs[2, i] * ry
+            result[1] += current_vecs[2, i] * rx - current_vecs[0, i] * rz
+            result[2] += current_vecs[0, i] * ry - current_vecs[1, i] * rx
+            
+        return result
+    
+    else:
+        raise NotImplementedError(f"Order {order} is not implemented yet")

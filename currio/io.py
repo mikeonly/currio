@@ -798,7 +798,7 @@ def plot(*objects, backend='notebook', show=True, style=None, **kwargs):
         **kwargs: Additional keyword arguments to be passed to the plotter.
     """
     if backend == 'notebook':
-        pl = pv.Plotter(notebook=True)
+        pl = pv.Plotter()
     elif backend == 'window':
         pl = pv.Plotter(notebook=False,
                         off_screen=False,

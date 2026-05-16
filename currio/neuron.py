@@ -12,7 +12,8 @@ from scipy.sparse import csr_matrix, csc_matrix
 from currio import __modelpath__
 
 import currio
-from currio.compiled import get_b_njit
+# from currio.compiled import get_b_njit
+from magrec.prop.compiled import get_b_njit
 from currio.utils import interp_along_axis, get_point_along_spline, get_t_idx_from_times
 from currio.sensor import Sensor, RegularGridSensor
 
@@ -612,7 +613,22 @@ class Neuron(object):
         elif isinstance(mesh, pv.MultiBlock):
             for sec_name in mesh.keys():
                 sec_mesh = mesh[sec_name]
-                sec_mesh.name = sec_name  # a hack to pass the information about the section name along with section mesh
+                
+                # a hack to pass the information about the section name along with section mesh
+                # Requires PyVista 0.47 or later for .set_new_attribute() method.
+                if hasattr(sec_mesh, "name"):
+                    if sec_mesh.name == sec_name:
+                        # name attribute is already set and it corresponds to the section name
+                        pass
+                    else:
+                        # name attribute is not set or it does not correspond to the section name, so set it
+                        sec_mesh.name = sec_name
+                else:
+                    pv.set_new_attribute(sec_mesh, "name", sec_name)
+                
+                # Prior to PyVista 0.47 setting the name attribute was done as:
+                # sec_mesh.name = sec_name 
+                
                 self.propagate_scalars(sec_mesh, t=t)
             print("Time taken: " + str((time.time() - t0) * 1e3) + " ms")
             return self
@@ -633,8 +649,9 @@ class Neuron(object):
         if len(ts) > 1:
             raise NotImplementedError("Propagating scalars to multiple times is not implemented yet.")
         
-        if mesh.name == "user5[13]":
-            print(record[mesh.name])
+        # For debugging purposes, print the record for the section
+        # if mesh.name == "user5[13]":
+        #     print(record[mesh.name])
             
         voltages = record[mesh.name].get("interp_v", None)
         currents = record[mesh.name].get("currents", None)

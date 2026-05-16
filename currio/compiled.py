@@ -17,21 +17,48 @@ def rhohl(sbeg, send, pt):
 def unit_magnetic_field(pt, sbeg, send):
     """Calculate the magnetic field produced by a unit current along the segment sbeg-send at point in space `pt`.
     
-    Returns the unit magnetic field vector in T / A.
+    ..math::
+    \mathbf{B} = \frac{\mu_0}{4\pi} \sum_n \frac{\hat{\mathbf{I}} \times \hat{\boldsymbol{\rho}}_n}{\rho_n} \left[\frac{h_n}{\sqrt{h_n^2 + \rho_n^2}} - \frac{l_n}{\sqrt{l_n^2 + \rho_n^2}}\right] d\ell
+    
+    where:
+    * :math:`\hat{\mathbf{I}}` is the unit current vector (dimensionless!)
+    * :math:`\hat{\boldsymbol{\rho}}_n` is the unit vector perpendicular to the segment
+    * :math:`h_n, l_n` are the distances to the segment endpoints along its axis
+    * :math:`\rho_n` is the perpendicular distance to the segment
+    * :math:`d\ell` is the differential length of the segment
+    
+    `pt` is the observation point in space.
+    `sbeg` and `send` are the start and end points of the segment.
+    
+    Returns: 
+        unit_B: (numpy.ndarray) the unit magnetic field vector in uT / A 
+                if units of `pt` and `sbeg`/`send` are in meters.
+                Units: 
+                    [output] = (uT * m / A) / [distance], 
+                    where [distance] is the unit of measure of `pt` and `sbeg`/`send`, e.g. meters.
     """
     rho_hat, rho, h, l_hat, l_norm = rhohl(sbeg, send, pt)
     factor = (h / np.sqrt(h**2 + rho**2) - l_norm / np.sqrt(l_norm**2 + rho**2)) / rho
-    unit_B = 1e-1 * np.cross(l_hat, rho_hat) * factor
-    return unit_B
+    unit_B = 1e-1 * np.cross(l_hat, rho_hat) * factor  
+    #            |
+    #         1e-1 uT * m / A = μ0 / 4π in the prior to 2019 defintion of μ0
+    return unit_B  # units of (uT * m / A) / [distance]
 
 @njit(parallel=True)
 def get_b_njit(current_pts, pts, current):
     """Calculate the magnetic field produced by a current going through `current_pts` at
-    points in space `pts`.
+    npts points in space `pts`.
     
     `current_pts` should be of shape (N, 3) where N is the number of points in the current path, and
     `current` should be of shape (N-1, T) where T is the number of time points. `current` direction
     is defined by the direction from `current_pts[i]` to `current_pts[i+1]`.
+    
+    Returns:
+        B: (numpy.ndarray) the magnetic field vector in uT if units of `pts` are in meters and `current` is in A.
+            Dimension is (3, npts, T). 
+            Units: 
+                [output] = (uT * m / A) * [current] / [distance], 
+                where [distance] is the unit of measure of both `pts` and `current_pts`, e.g. meters.
     """
     npts = len(pts)
     nsegs = len(current_pts) - 1
@@ -45,7 +72,7 @@ def get_b_njit(current_pts, pts, current):
             p2 = current_pts[j+1]
             unit_B = unit_magnetic_field(pt, p1, p2)
             B[:, i, :] += np.outer(unit_B, current[j])
-    return B
+    return B  # units of (uT * m / A) * [current] / [distance]
 
 @njit(parallel=True, fastmath=True)
 def get_odmr_shifts(B_fields, nv_axes, gamma):

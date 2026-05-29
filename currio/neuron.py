@@ -519,6 +519,44 @@ class Neuron(object):
     def mesh(self, value):
         """Set the mesh value."""
         self._mesh = value
+
+    @property
+    def bounds(self) -> tuple[float, float, float, float, float, float]:
+        """Axis-aligned bounds of the 3D mesh (µm): xmin, xmax, ymin, ymax, zmin, zmax."""
+        return tuple(float(v) for v in self.mesh.bounds)
+
+    @property
+    def centroid(self) -> np.ndarray:
+        """
+        Geometric center of the neuron mesh in 3D (µm).
+
+        Uses mesh bounds, same convention as ``RegularGridSensor.centroid`` and
+        ``phanty.pcb.Traces.centroid``.
+        """
+        return self.get_centroid()
+
+    def get_centroid(self, z: float | None = None, mode: str = "xyz") -> np.ndarray:
+        """
+        Centroid from mesh bounds (µm).
+
+        Args:
+            z: If set with ``mode='xy'``, use this z instead of the mid-z bound.
+            mode: ``'xyz'`` (default) mid-point in x, y, z; ``'xy'`` mid x/y only.
+        """
+        mode_l = mode.lower()
+        if z is not None and mode_l == "xyz":
+            mode_l = "xy"
+
+        xmin, xmax, ymin, ymax, zmin, zmax = self.bounds
+        xc = 0.5 * (xmin + xmax)
+        yc = 0.5 * (ymin + ymax)
+
+        if mode_l == "xy":
+            zc = 0.0 if z is None else float(z)
+        else:
+            zc = 0.5 * (zmin + zmax) if z is None else float(z)
+
+        return np.array([xc, yc, zc], dtype=float)
         
     def get_section_mesh(self, sec):
         # TODO: Rename to `get_obj_mesh` to allow for more general use, 
@@ -929,7 +967,7 @@ class Neuron(object):
             
                 
             
-    def get_B(self, pts: Union[np.ndarray, Sensor]) -> np.ndarray:
+    def get_B(self, pts: Union[np.ndarray, Sensor], t=None) -> np.ndarray:
         """Calculate and return the magnetic field at points `pts` or `sensor.points` 
         in the space.
         
@@ -957,9 +995,13 @@ class Neuron(object):
         Args:
             pts: Array of points or Sensor object where to compute the field 
                 (if Sensor, then pts.points is used)
+            t: Time point(s) in ms from the active record. If None, use all times
+                in ``record["t"]``. If a float, use the nearest record time. If a
+                sequence of floats (e.g. ``[3, 6, 9, 12, 15]``), use the nearest
+                index for each value.
 
         Returns:
-            np.ndarray: Magnetic field vectors at specified points
+            np.ndarray: Magnetic field of shape ``(3, n_points, n_times)``
 
         Raises:
             ValueError: If no simulation record exists
@@ -981,14 +1023,29 @@ class Neuron(object):
             self.simulate("default")
             self.calculate_currents()
         
-        nt = len(self.record["t"])
-        B = np.zeros((3, len(pts), nt))
+        # Select only times for computation passed by argument `t`
+        times = self.record["t"]
+        if t is None:
+            t_idcs = np.arange(len(times), dtype=int)
+        elif isinstance(t, (float, np.floating)) or (
+            isinstance(t, (int, np.integer)) and not isinstance(t, bool)
+        ):
+            _, t_idcs_single = get_t_idx_from_times(float(t), times)
+            t_idcs = np.array([t_idcs_single], dtype=int)
+        else:
+            t_idcs = np.array(
+                [get_t_idx_from_times(float(t_i), times)[1] for t_i in np.asarray(t).ravel()],
+                dtype=int,
+            )
+        
+        n_out = len(t_idcs)
+        B = np.zeros((3, len(pts), n_out))
         
         for section in self.record["sections"]:
             sec_dict = self.record[section]
             
             sec_pts = self.data_3d[section]["pts"]
-            currents = sec_dict["currents"]
+            currents = sec_dict["currents"][:, t_idcs]
             
             B[:, :, :] += get_b_njit(sec_pts, pts, currents)
             

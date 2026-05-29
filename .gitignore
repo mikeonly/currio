@@ -5,3 +5,6 @@
 # Models directory contents aren't tracked
 /models/*
 !/models/.gitkeep
+
+# Python package metadata
+*.egg-info/

@@ -9,14 +9,14 @@ authors = [
 description = "Currio is a Python package for creating, visualizing and simulating neuron models using NEURON simulator."
 readme = "README.md"
 license = {file = "LICENSE"}
-dependencies = ["pint", "pyvista>=0.47.0"]
+dependencies = ["pint", "pyvista>=0.47.0", "magrec"]
 
 [build-system]
 requires = ["setuptools>=58.2.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [tool.pytest.ini_options]
-testpaths = ["currio/test"]
+testpaths = ["currio/tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]

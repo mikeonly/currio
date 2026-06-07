@@ -12,10 +12,10 @@ from scipy.sparse import csr_matrix, csc_matrix
 from currio import __modelpath__
 
 import currio
-# from currio.compiled import get_b_njit
 from magrec.prop.compiled import get_b_njit
 from currio.utils import interp_along_axis, get_point_along_spline, get_t_idx_from_times
 from currio.sensor import Sensor, RegularGridSensor
+
 
 class Neuron(object):
     """A class representing a neuron model from ModelDB.

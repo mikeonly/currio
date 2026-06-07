@@ -1,0 +1,34 @@
+currio/tests/test_compiled.py
+  s_dc7e2fea25e793::t_0f286348b942d5 49,57,59,73,98,116,122,128,139-145
+  h_1911dffda4172c 69
+currio/compiled.py
+  s_dc7e2fea25e793::t_f4bf852ac96fad 114
+"notebooks/Number of channels.ipynb"
+  s_dc7e2fea25e793::t_2280958cf8b6aa 20
+pyproject.toml
+  s_dc7e2fea25e793::t_ef68a7560f002b 12
+  s_dc7e2fea25e793::t_5618f0720aa460 19
+notebooks/Current_Distribution_Reconstruction.ipynb
+  s_dc7e2fea25e793::t_133d3669072c55 37
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.3",
+  "base_commit_sha": "28d7830f984894c2da2ad3083ce63710a8d7a70e",
+  "prompts": {},
+  "humans": {
+    "h_1911dffda4172c": {
+      "author": "Michael Flaks <misha.flaks@gmail.com>"
+    }
+  },
+  "sessions": {
+    "s_dc7e2fea25e793": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "6b1cec8b-92d8-4290-85d7-82606d9bcd33",
+        "model": "default"
+      },
+      "human_author": "Michael Flaks <misha.flaks@gmail.com>"
+    }
+  }
+}

@@ -967,7 +967,7 @@ class Neuron(object):
             
                 
             
-    def get_B(self, pts: Union[np.ndarray, Sensor], t=None) -> np.ndarray:
+    def get_B(self, pts: Union[np.ndarray, Sensor], t_ms=None) -> np.ndarray:
         """Calculate and return the magnetic field at points `pts` or `sensor.points` 
         in the space.
         
@@ -1008,6 +1008,10 @@ class Neuron(object):
         """
         if isinstance(pts, Sensor):
             pts = pts.points
+        elif isinstance(pts, np.ndarray):
+            pass
+        else:
+            raise ValueError(f"Unsupported type for `pts`: {type(pts)}. Expected `Sensor`, `torch.Tensor`, or `np.ndarray`.")
             
         # Check if 3d model is loaded
         if self.data_3d is None:
@@ -1025,16 +1029,23 @@ class Neuron(object):
         
         # Select only times for computation passed by argument `t`
         times = self.record["t"]
-        if t is None:
+        if t_ms is None:
             t_idcs = np.arange(len(times), dtype=int)
-        elif isinstance(t, (float, np.floating)) or (
-            isinstance(t, (int, np.integer)) and not isinstance(t, bool)
+            n_out = len(t_idcs)
+            mem_gb = 3 * len(pts) * n_out * 8 / 1e9
+            if mem_gb > 2.0:
+                raise ValueError(
+                    f"get_B with t_ms=None would allocate B with shape (3, {len(pts)}, {n_out}) "
+                    f"(~{mem_gb:.1f} GB). Pass t_ms as a float or list of times, e.g. t_ms={list(times[:5])}."
+                )
+        elif isinstance(t_ms, (float, np.floating)) or (
+            isinstance(t_ms, (int, np.integer)) and not isinstance(t_ms, bool)
         ):
-            _, t_idcs_single = get_t_idx_from_times(float(t), times)
+            _, t_idcs_single = get_t_idx_from_times(float(t_ms), times)
             t_idcs = np.array([t_idcs_single], dtype=int)
         else:
             t_idcs = np.array(
-                [get_t_idx_from_times(float(t_i), times)[1] for t_i in np.asarray(t).ravel()],
+                [get_t_idx_from_times(float(t_i), times)[1] for t_i in np.asarray(t_ms).ravel()],
                 dtype=int,
             )
         

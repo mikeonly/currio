@@ -1,0 +1,25 @@
+currio/neuron.py
+  h_1911dffda4172c 1011-1012,1039-1040,1042
+  s_c6dddba0e466a5::t_b2837a64afc15d 1032,1034-1038
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.3",
+  "base_commit_sha": "b39331cf725543ac6e7978bafc5c7722e3d823a7",
+  "prompts": {},
+  "humans": {
+    "h_1911dffda4172c": {
+      "author": "Michael Flaks <misha.flaks@gmail.com>"
+    }
+  },
+  "sessions": {
+    "s_c6dddba0e466a5": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "0fc50ecc-d197-474d-adf2-7a28c1988ac1",
+        "model": "default"
+      },
+      "human_author": "Michael Flaks <misha.flaks@gmail.com>"
+    }
+  }
+}

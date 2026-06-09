@@ -1,0 +1,24 @@
+currio/neuron.py
+  s_7061f4a0d461eb::t_7980af9483757f 509-510,512-513,522,528,531-533
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.6",
+  "base_commit_sha": "ab6916fa2751973291bedc4e4d6b59637f594e2c",
+  "prompts": {},
+  "humans": {
+    "h_1911dffda4172c": {
+      "author": "Michael Flaks <misha.flaks@gmail.com>"
+    }
+  },
+  "sessions": {
+    "s_7061f4a0d461eb": {
+      "agent_id": {
+        "tool": "github-copilot-cli",
+        "id": "9ae886d6-6e79-442a-b000-b158022de690",
+        "model": "gpt-5.4-mini"
+      },
+      "human_author": "Michael Flaks <misha.flaks@gmail.com>"
+    }
+  }
+}

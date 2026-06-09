@@ -234,10 +234,14 @@ class IO:
     @classmethod
     def _save_neuron(cls, neuron, resultspath):
         """Save a neuron's records to JSON."""
-        records = [make_serializable(record) for record in neuron.records]
+        payload = {
+            "records": [make_serializable(record) for record in neuron.records]
+        }
+        if neuron.data_3d is not None:
+            payload["data_3d"] = make_serializable(neuron.data_3d)
         
         with open(resultspath / f"{neuron.id}.json", "w") as f:
-            json.dump(records, f, indent=2)
+            json.dump(payload, f, indent=2)
         print(f"Saved records for Neuron {neuron.id} to {resultspath / f'{neuron.id}.json'}")
 
     @classmethod
@@ -322,13 +326,23 @@ class IO:
             raise FileNotFoundError(f"No records for model {model_id}")
         
         with open(neuron_file) as f:
-            records = json.load(f)
+            payload = json.load(f)
         
+        if isinstance(payload, list):
+            records = payload
+            data_3d = None
+        else:
+            records = payload.get("records", [])
+            data_3d = payload.get("data_3d", None)
+
         # Convert loaded data back to proper types, i.e. lists to numpy arrays
         records = [unmake_serializable(record) for record in records]
+        if data_3d is not None:
+            data_3d = unmake_serializable(data_3d)
         
-        neuron = Neuron(model_id)
+        neuron = Neuron(model_id, init_NEURON=False)
         neuron.records = records
+        neuron.data_3d = data_3d
         print(f"Loaded: {neuron}")
         return neuron
 

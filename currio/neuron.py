@@ -26,6 +26,9 @@ class Neuron(object):
     Args:
         model_name (str or int, optional): ModelDB ID or folder name. Defaults to None.
         hocfile (str, optional): Main HOC file to load. Defaults to 'mosinit.hoc'.
+        init_NEURON (bool, optional): Start the NEURON environment during construction.
+            If False, the environment is started later by calling `.init_NEURON()` or
+            any method that requires NEURON.
 
     Attributes:
         h: NEURON simulator interface
@@ -54,25 +57,23 @@ class Neuron(object):
         }
     }
     
-    # Make NEURON available as a class attribute
-    def __init__(self, model_name=None, hocfile='mosinit.hoc'):
+    # TODO: Make NEURON available as a class attribute
+    def __init__(self, model_name=None, hocfile='mosinit.hoc', init_NEURON=False):
         self.hocfile = hocfile
+        self.model_name = str(model_name) if model_name is not None else None
+        self.loaded_NEURON = False
         
         # Look for the model in the modelpath
-        if model_name is not None:
+        if self.model_name is not None:
             if isinstance(model_name, int):
-                # model_name can be an int specifying the model number in the ModelDB, then
-                model_name = str(model_name)
-                
-            self.model_path = __modelpath__ / model_name
+                self.model_name = str(model_name)
+            self.model_path = __modelpath__ / self.model_name
         else:
             # Assume the model is in the current working directory
             self.model_path = os.getcwd()
         
-        self.load_model(model_name)
-        
         # Extract the model ID from the model path
-        self.id = model_name.split("/")[-1]
+        self.id = os.path.basename(os.path.normpath(str(self.model_path)))
         
         self.data_3d: dict = None
         """3D model of the neuron. Updated by `.load_3d_model()` method.
@@ -86,7 +87,8 @@ class Neuron(object):
         
         self.records: list = []
         self._active_record_idx = -1
-        self.record: dict = ...
+        self.record: dict = ... # I forgot, why is it `...` and not dict()? Must
+                                # have been a reason there
         """Record dictionary of the simulation. Updated by `.create_record()`, 
         `.calculate_currents()` and `.propagate_B()` methods.
         
@@ -113,17 +115,19 @@ class Neuron(object):
         self._mesh: pv.MultiBlock = None  # Initialize private mesh attribute
         """PyVista mesh of the neuron model. Updated by `.create_3d_mesh()` method. 
         Accessed by `.mesh` property."""
+
+        if init_NEURON:
+            self.init_NEURON()
         
-    def initialize_NEURON(self):
-        """Initialize NEURON."""
-        try:
-            import neuron as NEURON
-            from neuron import h, nrn, hoc
-            self.h = h
-            self.nrn = nrn
-            self.hoc = hoc
-        except ImportError:
-            raise ImportError("NEURON could not be initialized. Please check NEURON installation.")
+    def init_NEURON(self):
+        """Start the NEURON environment and load the model into it."""
+        return self.load_model()
+
+    def require_NEURON(self):
+        """Ensure the NEURON environment is started before using NEURON-dependent methods."""
+        if not self.loaded_NEURON:
+            self.init_NEURON()
+        return self
         
     @property
     def record(self):
@@ -139,6 +143,7 @@ class Neuron(object):
         
     def clean(self):
         """Clean the NEURON environment."""
+        self.require_NEURON()
         # Clear all sections
         for sec in self.h.allsec():
             self.h.delete_section(sec=sec)
@@ -177,10 +182,26 @@ class Neuron(object):
             FileNotFoundError: If model files not found
             RuntimeError: If model fails to load
         """
+        if self.loaded_NEURON and model_name is None:
+            return self
+
+        if model_name is not None:
+            self.model_name = str(model_name)
+            if isinstance(model_name, int):
+                self.model_name = str(model_name)
+            self.model_path = __modelpath__ / self.model_name
+            self.id = os.path.basename(os.path.normpath(str(self.model_path)))
+
         # In some cases, the model loading does not detect compiled mechanisms, 
         # this is an attempt to properly point to where the mechanisms are. 
         os.chdir(str(self.model_path))
-        self.initialize_NEURON()
+        try:
+            from neuron import h, nrn, hoc
+            self.h = h
+            self.nrn = nrn
+            self.hoc = hoc
+        except ImportError:
+            raise ImportError("NEURON could not be initialized. Please check NEURON installation.")
         # Change to model directory, self.model_path is a Path object, so convert it to str
         success = self.h.chdir(str(self.model_path))
         if success != 0:  # NEURON returns 0 on success of unix operations such as chdir
@@ -197,10 +218,12 @@ class Neuron(object):
         if success != 1:  # NEURON returns 1 on success
             raise RuntimeError(f"Failed to load {self.hocfile}")
         
+        self.loaded_NEURON = True
         return self
         
     def simulate(self, proc_name, force=False, track_vars=None):
         """Run a simulation procedure defined in the model .hoc file."""
+        self.require_NEURON()
         
         # Access and run the procedure
         if not hasattr(self.h, proc_name):
@@ -262,6 +285,7 @@ class Neuron(object):
         Returns:
             self: Returns the Neuron object for chaining.
         """
+        self.require_NEURON()
         record = {
             "proc_name": proc_name,
             "t": self.h.Vector().record(self.h._ref_t),
@@ -350,6 +374,7 @@ class Neuron(object):
             - `currents`: a list of currents for each segment in 3D model in the
               section of length `len(t)`.
         """
+        self.require_NEURON()
         if self.record is None:
             raise ValueError(
                 """No simulation record found. Run a simulation first by specifying
@@ -454,9 +479,10 @@ class Neuron(object):
         })
 
         return self
-    
+
     def load_3d_model(self):
         """Load the 3D model of the neuron."""
+        self.require_NEURON()
         data = {}
         for sec in self.h.allsec():
             xs = np.array([sec.x3d(i) for i in range(sec.n3d())])
@@ -470,11 +496,19 @@ class Neuron(object):
             }
         self.data_3d = data
         return self
+
+    def get_3d_model(self) -> dict:
+        if self.data_3d is not None:
+            return self.data_3d
+        else:
+            self.load_3d_model()
+            return self.data_3d
     
     def get_3d_mesh(self, sec=None) -> pv.MultiBlock:
         """Outputs a pyvista mesh of the neuron. If `sec` is given, only that section(s) is (are) returned.
         Sections can be either a string or a list of strings, or it can be a list of section objects from h 
         NEURON environment."""
+        self.require_NEURON()
         if self.data_3d is None:
             self.load_3d_model()
             
@@ -599,9 +633,11 @@ class Neuron(object):
             pv.Spline: A PyVista spline of the section.
         """
         if self.data_3d is None:
-            self.load_3d_model()
-        
+            self.load_3d_model() # guarantees that .data_3d is present
+
+        # FIX: self.nrn is undefined if NEURON is not loaded
         if isinstance(sec, self.nrn.Section):
+            self.require_NEURON()
             sec_data = self.data_3d.get(sec.hname(), None)
         elif isinstance(sec, str):
             sec_data = self.data_3d.get(sec, None)
@@ -633,6 +669,7 @@ class Neuron(object):
     
     def propagate_scalars(self, mesh=None, t=None):
         """Propagate the time-dependent scalars to the mesh."""
+        self.require_NEURON()
         if self.record is None:
             raise ValueError("No simulation record found. Run a simulation first by specifying the process name in `.simulate('proc_name')`.")
         record = self.record
@@ -746,6 +783,7 @@ class Neuron(object):
                 - `seg`: segment location
                 - `mech`: mechanism name
         """
+        self.require_NEURON()
         if isinstance(objs, str):
             raise NotImplementedError("Not implemented for a single section.")
         elif isinstance(objs, self.hoc.HocObject):

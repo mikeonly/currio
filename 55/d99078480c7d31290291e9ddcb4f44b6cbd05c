@@ -1,0 +1,29 @@
+currio/neuron.py
+  s_7061f4a0d461eb::t_bb83242af84c99 29-31
+  s_7061f4a0d461eb::t_c5a0b5db7e10c2 122-130
+  s_7061f4a0d461eb::t_7ade7115cd9d82 146
+  s_7061f4a0d461eb::t_387705fa442213 377,482,485,499-505,511
+  s_7061f4a0d461eb::t_69b73661b8759f 226,288
+  s_7061f4a0d461eb::t_c602641d2c543a 185-187
+  s_7061f4a0d461eb::t_2f318826e73712 63-64,67,69-70,76,90-91,118-120
+  s_7061f4a0d461eb::t_640764aceac3d0 188-194,198-204,221
+  s_7061f4a0d461eb::t_26a407cbd90d99 672,786
+currio/io.py
+  s_7061f4a0d461eb::t_31b0fb6a8757da 237-241,244,329,331-337,340-341,343,345
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.6",
+  "base_commit_sha": "55d99078480c7d31290291e9ddcb4f44b6cbd05c",
+  "prompts": {},
+  "sessions": {
+    "s_7061f4a0d461eb": {
+      "agent_id": {
+        "tool": "github-copilot-cli",
+        "id": "9ae886d6-6e79-442a-b000-b158022de690",
+        "model": "gpt-5.4-mini"
+      },
+      "human_author": "Michael Flaks <misha.flaks@gmail.com>"
+    }
+  }
+}

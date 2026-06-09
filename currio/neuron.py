@@ -374,7 +374,6 @@ class Neuron(object):
             - `currents`: a list of currents for each segment in 3D model in the
               section of length `len(t)`.
         """
-        self.require_NEURON()
         if self.record is None:
             raise ValueError(
                 """No simulation record found. Run a simulation first by specifying
@@ -389,6 +388,7 @@ class Neuron(object):
         else:
             data_3d = self.data_3d
         
+        self.require_NEURON()  # needed for sec.L, sec.allseg()
         # Iterate through sections using the sections list
         for section in record["sections"]:
             sec = self.get(section)
@@ -506,10 +506,11 @@ class Neuron(object):
     
     def get_3d_mesh(self, sec=None) -> pv.MultiBlock:
         """Outputs a pyvista mesh of the neuron. If `sec` is given, only that section(s) is (are) returned.
-        Sections can be either a string or a list of strings, or it can be a list of section objects from h 
-        NEURON environment."""
-        self.require_NEURON()
+        Sections can be strings, or NEURON sections when the NEURON environment is loaded.
+        If `data_3d` is already present, this does not require NEURON."""
         if self.data_3d is None:
+            if not self.loaded_NEURON:
+                raise ValueError("No 3D model data loaded. Load a saved neuron with data_3d or call `load_3d_model()` first.")
             self.load_3d_model()
             
         if sec is None:
@@ -518,16 +519,18 @@ class Neuron(object):
         elif isinstance(sec, str):
             meshes = {sec: self.get_section_mesh(sec)}
         
-        elif isinstance(sec, self.nrn.Section):
+        elif self.loaded_NEURON and isinstance(sec, self.nrn.Section):
             meshes = {sec.hname(): self.get_section_mesh(sec.hname())}
         
         elif isinstance(sec, list):
             if all([isinstance(s, str) for s in sec]):
                 meshes = {s: self.get_section_mesh(s) for s in sec}
-            elif all([isinstance(s, self.nrn.Section) for s in sec]):
+            elif self.loaded_NEURON and all([isinstance(s, self.nrn.Section) for s in sec]):
                 meshes = {s.hname(): self.get_section_mesh(s.hname()) for s in sec}
             else:
-                raise ValueError("Invalid type for `sec`. It is a list, but the elements are not strings or NEURON sections.")
+                raise ValueError("Invalid type for `sec`. It is a list, but the elements are not all strings or NEURON sections.")
+        else:
+            raise ValueError("Invalid type for `sec`. Use a section name, list of names, or NEURON sections when NEURON is loaded.")
             
         meshes = pv.MultiBlock(meshes)
         return meshes
@@ -577,15 +580,14 @@ class Neuron(object):
             z: If set with ``mode='xy'``, use this z instead of the mid-z bound.
             mode: ``'xyz'`` (default) mid-point in x, y, z; ``'xy'`` mid x/y only.
         """
-        mode_l = mode.lower()
-        if z is not None and mode_l == "xyz":
-            mode_l = "xy"
+        if z is not None and mode == "xyz":
+            mode = "xy"
 
         xmin, xmax, ymin, ymax, zmin, zmax = self.bounds
         xc = 0.5 * (xmin + xmax)
         yc = 0.5 * (ymin + ymax)
 
-        if mode_l == "xy":
+        if mode == "xy":
             zc = 0.0 if z is None else float(z)
         else:
             zc = 0.5 * (zmin + zmax) if z is None else float(z)
@@ -636,9 +638,15 @@ class Neuron(object):
             self.load_3d_model() # guarantees that .data_3d is present
 
         # FIX: self.nrn is undefined if NEURON is not loaded
-        if isinstance(sec, self.nrn.Section):
-            self.require_NEURON()
-            sec_data = self.data_3d.get(sec.hname(), None)
+        if self.loaded_NEURON:
+            if isinstance(sec, self.nrn.Section):
+                sec_data = self.data_3d.get(sec.hname(), None)
+            elif isinstance(sec, str):
+                sec_data = self.data_3d.get(sec, None)
+            else:
+                raise ValueError("""
+                    Invalid type for `sec`. It should be either a string or a NEURON section,
+                    but got type {} for `sec` {}.""".format(type(sec), sec))
         elif isinstance(sec, str):
             sec_data = self.data_3d.get(sec, None)
         else:
